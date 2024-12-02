@@ -2,8 +2,8 @@
 #define HEADER_HPP
 
 #include <vector>
-#include <stack>
 #include <stdlib.h>
+#include <math.h>
 #include "io.hpp"
 #include "util.hpp"
 
@@ -87,29 +87,52 @@ struct codebook {
 		unsigned int current_length = 0;
 		while(!ok) {
 			s <<= 1, s += in.read_u(1), current_length++;
+			printf("%x ", s);
 			for(unsigned int i = 0; i < entries; ++i) { 
 				if(current_length == length[i] && s == codeword[i]) return i;
 			}
 		}
+		printf("\n");
+		return 0;
 	}
 
-	vector<unsigned int> lookup(io_buf &in) {
-		for(int i = 0; i < dimension; ++i) {
+	vector<float> lookup(io_buf &in) {
+		unsigned int lookup_offset = find(in);
+		vector<float> value_vector(dimensions, 0);
+		if(lookup_type == 1) {
+			float last = 0;
+			unsigned int index_divisor = 1;
+			for(unsigned int i = 0; i < dimensions; ++i) {
+				unsigned int multiplicand_offset = (lookup_offset / index_divisor) % lookup_values;
+				value_vector[i] = multiplicands[multiplicand_offset] * delta_value + minimum_value + last;
+				if(sequence_p == 1) last = value_vector[i];
+				index_divisor *= lookup_values;
+			}
 		}
+		if(lookup_type == 2) {
+			float last = 0;
+			unsigned int multiplicand_offset = lookup_offset * dimensions;
+			for(unsigned int i = 0; i < dimensions; ++i) {
+				value_vector[i] = multiplicands[multiplicand_offset] * delta_value + minimum_value + last;
+				if(sequence_p == 1) last = value_vector[i];
+				multiplicand_offset++;
+			}
+		}
+		return value_vector;
 	}
 
 	void setup_huffman() {
 		unsigned int s = 0;
-		unsigned int current_length;
+		unsigned int current_length = 1;
 		s <<= 1;
 		for(unsigned int i = 0; i < entries; ++i){
-			while(curreent_length < length[i]) {
+			while(current_length < length[i]) {
 				s <<= 1, current_length++;
 			}
 			while(current_length > length[i]) {
 				s >>= 1, current_length--;
 			}
-			codeword[i] = s;
+			codeword.push_back(s);
 			s++;
 		}
 	}
@@ -168,6 +191,7 @@ struct codebook {
 };
 
 struct floors {
+	unsigned int type;
 	// type 0 //
 	unsigned int order;
 	unsigned int rate;
@@ -175,32 +199,102 @@ struct floors {
 	unsigned int amplitude_bits;
 	unsigned int amplitude_offset;
 	unsigned int number_of_books;
-	vector<int> book_list;
+	vector<unsigned int> book_list;
 
-	void decode (io_buf &in, unsigned int type, vector<codebook> &codebook_configuration) {
-		order = in.read_u(8);
-		rate = in.read_u(16);
-		bark_map_size = in.read_u(16);
-		amplitude_bits = in.read_u(6);
-		amplitude_offset = in.read_u(8);
-		number_of_books = in.read_u(4) + 1;
-		book_list.resize(number_of_books);
-		for(unsigned int i = 0; i < number_of_books; ++i)
-			book_list[i] = in.read_u(8);
+	// type 1 //
+	unsigned int partitions;
+	int maximum_class;
+	vector<unsigned int> partition_class_list;
+	vector<unsigned int> class_dimensions;
+	vector<unsigned int> class_subclasses;
+	vector<unsigned int> class_masterbooks;
+	vector<vector<int>> subclass_books;
+	unsigned int multiplier;
+	unsigned int rangebits;
+	vector<unsigned int> X_list;
 
-		unsigned int amplitude = in.read_u(amplitude_bits);
-		if(amplitude > 0) {
-			vector<unsigned int> coefficients;
-			unsigned int booknumber = in.read_u(ilog(number_of_books));
-			if(booknumber > codebook_configuration.size()) exit(-1);
-			unsigned int last = 0;
-			while(1) {
-				vector<unsigned int> tmp;
-
+	void header_decode (io_buf &in, unsigned int _type) {
+		type = _type;
+		if(type == 0) {
+			order = in.read_u(8);
+			rate = in.read_u(16);
+			bark_map_size = in.read_u(16);
+			amplitude_bits = in.read_u(6);
+			amplitude_offset = in.read_u(8);
+			number_of_books = in.read_u(4) + 1;
+			book_list.resize(number_of_books);
+			for(unsigned int i = 0; i < number_of_books; ++i)
+				book_list[i] = in.read_u(8);
+		}
+		else if(type == 1) {
+			partitions = in.read_u(5);
+			maximum_class = -1;
+			partition_class_list.resize(partitions);
+			for(unsigned int i = 0; i < partitions; ++i) {
+				unsigned int tmp = in.read_u(4);
+				if(maximum_class < (int) tmp) maximum_class = tmp;
+				partition_class_list[i] = tmp;
+			}
+			class_dimensions.resize(maximum_class);
+			class_subclasses.resize(maximum_class);
+			class_masterbooks.resize(maximum_class);
+			subclass_books.resize(maximum_class);
+			for(int i = 0; i < maximum_class; ++i) {
+				class_dimensions[i] = in.read_u(3) + 1;
+				class_subclasses[i] = in.read_u(2);
+				if(class_subclasses[i] != 0) class_masterbooks[i] = in.read_u(8);
+				unsigned int p2 = pow(2, class_subclasses[i]);
+				subclass_books[i].resize(p2);
+				for(unsigned int j = 0; j < p2; ++j) {
+					subclass_books[i][j] = ((int) in.read_u(8)) - 1;
+				}
+			}
+			multiplier = in.read_u(2) + 1;
+			rangebits = in.read_u(4);
+			X_list.resize(partitions + 2);
+			X_list[0] = 0;
+			X_list[1] = pow(2, rangebits);
+			unsigned int values = 2;
+			for(unsigned int i = 0; i < partitions; ++i) {
+				unsigned int current_class_number = partition_class_list[i];
+				for(unsigned int j = 0; j < class_dimensions[current_class_number]; ++j) {
+					X_list[values] = in.read_u(rangebits);
+					values++;
+				}
 			}
 		}
 		return;
 	}
+
+	void packet_decode (io_buf &in, vector<codebook> &codebook_configuration) {
+		if(type == 0) {
+			unsigned int amplitude = in.read_u(amplitude_bits);
+			if(amplitude > 0) {
+				vector<float> coefficients;
+				unsigned int booknumber = in.read_u(ilog(number_of_books));
+				if(booknumber > codebook_configuration.size()) exit(-1);
+				float last = 0;
+				while(1) {
+					vector<float> tmp = codebook_configuration[book_list[booknumber]].lookup(in);
+					for(unsigned int i = 0; i < tmp.size(); ++i) tmp[i] += last;
+					last = tmp[tmp.size() - 1];
+					coefficients.insert(coefficients.end(), tmp.begin(), tmp.end());
+					if(coefficients.size() >= order) break;
+				}
+			}
+		}
+		else if(type == 1) {
+			unsigned int nonzero;
+			if(nonzero == 1) {
+				// TODO
+			}
+		}
+		return;
+	}
+};
+
+struct residue {
+
 };
 
 struct setup {
@@ -211,6 +305,9 @@ struct setup {
 	unsigned int floor_count;
 	vector<unsigned int> floor_type;
 	vector<floors> floor_configuration;
+	unsigned int residue_count;
+	vector<unsigned int> residue_type;
+	vector<residue> residue_configuration;
 
 	void init(io_buf &in) {
 		codebook_count = in.read_u(8) + 1;
@@ -232,7 +329,16 @@ struct setup {
 		for(unsigned int i = 0; i < floor_count; ++i) {
 			floor_type[i] = in.read_u(16);
 			if(floor_type[i] > 1) exit(-1);
-			floor_configuration[i].decode(in, floor_type[i], codebook_configuration);
+			floor_configuration[i].header_decode(in, floor_type[i]);
+		}
+
+		residue_count = in.read_u(6);
+		residue_type.resize(residue_count);
+		residue_configuration.resize(residue_count);
+		for(unsigned int i = 0; i < residue_count; ++i) {
+			residue_type[i] = in.read_u(16);
+			if(residue_type[i] > 2) exit(-1);
+			residue_configuration[i].header_decode(in, residue_type[i]);
 		}
 	}
 };
