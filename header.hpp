@@ -24,12 +24,12 @@ struct identification {
 		verbis_version    = in.read_u(32);
 		audio_channels    = in.read_u(8);
 		audio_sample_rate = in.read_u(32); 
-        bitrate_maximum   = in.read_s(32);
-        bitrate_nominal   = in.read_s(32);
-        bitrate_minimum   = in.read_s(32);
-        blocksize_0       = in.read_u(4);
-        blocksize_1       = in.read_u(4);
-        framing_flag      = in.read_u(1);
+		bitrate_maximum   = in.read_s(32);
+		bitrate_nominal   = in.read_s(32);
+		bitrate_minimum   = in.read_s(32);
+		blocksize_0       = in.read_u(4);
+		blocksize_1       = in.read_u(4);
+		framing_flag      = in.read_u(1);
 		in.read_u(7);
 	}
 };
@@ -67,7 +67,7 @@ struct comment {
 
 };
 
-struct codebook {
+struct codebooks {
 	unsigned int dimensions;
 	unsigned int entries;
 	unsigned int* length;
@@ -212,7 +212,8 @@ struct floors {
 	int** subclass_books;
 	unsigned int multiplier;
 	unsigned int rangebits;
-	unsigned int* X_list;
+	int* X_list;
+	int values;
 
 	void header_decode (io_buf &in, unsigned int _type) {
 		type = _type;
@@ -256,10 +257,10 @@ struct floors {
 			unsigned int total = 0;
 			for(unsigned int i = 0; i < partitions; ++i)
 				total += class_dimensions[partition_class_list[i]];
-			X_list = new unsigned int[total + 2];
+			X_list = new int[total + 2];
 			X_list[0] = 0;
 			X_list[1] = pow(2, rangebits);
-			unsigned int values = 2;
+			values = 2;
 			for(unsigned int i = 0; i < partitions; ++i) {
 				unsigned int current_class_number = partition_class_list[i];
 				for(unsigned int j = 0; j < class_dimensions[current_class_number]; ++j) {
@@ -272,7 +273,7 @@ struct floors {
 	}
 };
 
-struct residue {
+struct residues {
 	unsigned int type;
 	unsigned int begin;
 	unsigned int end;
@@ -351,15 +352,15 @@ struct mappings {
 		for(unsigned int i = 0; i < submap; ++i) {
 			in.read_u(8); // unused
 			submap_floor[i] = in.read_u(8);
-			if(submap_floor[i] > fl) exit(-1);
+			if(submap_floor[i] >= fl) exit(-1);
 			submap_residue[i] = in.read_u(8);
-			if(submap_residue[i] > re) exit(-1);
+			if(submap_residue[i] >= re) exit(-1);
 		}
 		return;
 	}
 };
 
-struct mode {
+struct modes {
 	bool blockflag;
 	unsigned int windowtype;
 	unsigned int transformtype;
@@ -379,7 +380,7 @@ struct mode {
 
 struct setup {
 	unsigned int codebook_count;
-	codebook* codebook_configuration;
+	codebooks* codebook_configuration;
 	unsigned int time_count;
 	unsigned int* time;
 	unsigned int floor_count;
@@ -387,15 +388,15 @@ struct setup {
 	floors* floor_configuration;
 	unsigned int residue_count;
 	unsigned int* residue_type;
-	residue* residue_configuration;
+	residues* residue_configuration;
 	unsigned int mapping_count;
 	mappings* mapping_configuration;
 	unsigned int mode_count;
-	mode* mode_configuration;
+	modes* mode_configuration;
 
 	void init(io_buf &in, identification &id) {
 		codebook_count = in.read_u(8) + 1;
-		codebook_configuration = new codebook[codebook_count];
+		codebook_configuration = new codebooks[codebook_count];
 		for(unsigned int i = 0; i < codebook_count; ++i) {
 			codebook_configuration[i].decode(in);
 		}
@@ -418,7 +419,7 @@ struct setup {
 
 		residue_count = in.read_u(6) + 1;
 		residue_type = new unsigned int[residue_count];
-		residue_configuration = new residue[residue_count];
+		residue_configuration = new residues[residue_count];
 		for(unsigned int i = 0; i < residue_count; ++i) {
 			residue_type[i] = in.read_u(16);
 			if(residue_type[i] > 2) exit(-1);
@@ -434,7 +435,7 @@ struct setup {
 		}
 
 		mode_count = in.read_u(6) + 1;
-		mode_configuration = new mode[mode_count];
+		mode_configuration = new modes[mode_count];
 		for(unsigned int i = 0 ; i < mode_count; ++i) {
 			mode_configuration[i].header_decode(in, mapping_count);
 		}
@@ -459,9 +460,13 @@ struct packet {
 	unsigned int right_n;
 
 	void decode(io_buf &in, identification &id, setup &s) {
+		//packet type, mode and window decode
 		mode_number = in.read_u(ilog(s.mode_count - 1));
-		mapping_number = s.mode_configuration[mode_number].mapping;
-		unsigned int blockflag = s.mode_configuration[mode_number].blockflag;
+		auto &mode = s.mode_configuration[mode_number];
+		mapping_number = mo.mapping;
+		auto &mapping = s.mapping_configuration[mapping_number];
+
+		unsigned int blockflag = mode.blockflag;
 		n = blockflag == 0 ? id.blocksize_0 : id.blocksize_1;
 		if(blockflag == 1) {
 			previous_window_flag = in.read_u(1);
@@ -497,24 +502,27 @@ struct packet {
 			window[i] = sin(M_PI / 2 * pow(sin((((float)i) - ((float)right_window_start) + 0.5) / right_n * ( M_PI / 2) + M_PI / 2), 2));
 		for(unsigned int i = right_window_end; i < n; ++i) window[i] = 0;
 
+		// floor curve decode
 		vector<vector<double>> floor_output;
 		floor_output.resize(id.audio_channels);
 		for(unsigned int t = 0; t < id.audio_channels; ++t)
 			floor_output[t].resize(n);
 
 		for(unsigned int t = 0; t < id.audio_channels; ++t) {
-			unsigned int submap_number = s.mapping_configuration[mapping_number].mux[t];
-			unsigned int floor_number = s.mapping_configuration[mapping_number].submap_floor[submap_number];
+			unsigned int submap_number;
+			if(mapping.submap > 1) submap_number = mapping.mux[t];
+			else submap_number = 0;
+			unsigned int floor_number = mapping.submap_floor[submap_number];
 			auto &fl = s.floor_configuration[floor_number];
 			unsigned int unused = 0;
-			if(s.floor_configuration[floor_number].type == 0) {
+			if(fl.type == 0) {
 
 				unsigned int amplitude = in.read_u(fl.amplitude_bits);
-				vector<float> coefficients(n, 0);
 				if(amplitude > 0) {
 					unsigned int booknumber = in.read_u(ilog(fl.number_of_books));
 					if(booknumber > s.codebook_count) exit(-1);
 					float last = 0;
+					vector<float> coefficients;
 					while(1) {
 						vector<float> tmp = s.codebook_configuration[fl.book_list[booknumber]].lookup(in);
 						for(unsigned int i = 0; i < tmp.size(); ++i) tmp[i] += last;
@@ -584,9 +592,88 @@ struct packet {
 					unused = 1;
 				}
 				else {
-					// TODO
+					unsigned int rr[4] = {256, 128, 86, 64};
+					unsigned int range = rr[fl.multiplier - 1];
+					unsigned int Y[2 + fl.values];
+					Y[0] = in.read_u(ilog(range - 1));
+					Y[1] = in.read_u(ilog(range - 1));
+					unsigned int offset = 2;
+					for(unsigned int i = 0; i < fl.partitions; ++i) {
+						unsigned int class_ = fl.partition_class_list[i];
+						unsigned int cdim = fl.class_dimensions[class_];
+						unsigned int cbits = fl.class_subclasses[class_];
+						unsigned int csub = pow(2, cbits) - 1;
+						unsigned int cval = 0;
+						if(cbits > 0) cval = s.codebook_configuration[fl.class_masterbooks[class_]].find(in);
+						for(unsigned int j = 0; j < cdim; ++j) {
+							unsigned int book = fl.subclass_books[class_][cval & csub];
+							cval >>= cbits;
+							if(book >= 0) Y[j + offset] = s.codebook_configuration[book].find(in);
+							else Y[j + offset] = 0;
+						}
+						offset += cdim;
+					}
+					// step 1
+					int final_Y[range];
+					bool step2_flag[2 + fl.values];
+					step2_flag[0] = 1, step2_flag[1] = 1;
+					final_Y[0] = Y[0], final_Y[1] = Y[1];
+					for(int i = 2; i < fl.values; ++i) {
+						int low_neighbor_offset = low_neighbor(fl.X_list, i);
+						int high_neighbor_offset = high_neighbor(fl.X_list, i, fl.values + 2);
+						int predicted = render_point(
+								fl.X_list[low_neighbor_offset], final_Y[low_neighbor_offset],
+								fl.X_list[high_neighbor_offset], final_Y[high_neighbor_offset], fl.X_list[i]);
+						int val = Y[i];
+						int highroom = range - predicted, lowroom = predicted, room;
+						if(highroom < lowroom) room = highroom * 2;
+						else room = lowroom * 2;
+						if(val != 0) {
+							step2_flag[low_neighbor_offset] = 1;
+							step2_flag[high_neighbor_offset] = 1;
+							step2_flag[i] = 1;
+							if(val >= room){
+								if(highroom > lowroom) final_Y[i] = val - lowroom + predicted;
+								else final_Y[i] = predicted - val + highroom - 1;
+							}
+							else {
+								if(val & 1) final_Y[i] = predicted - ((val + 1) / 2);
+								else final_Y[i] = predicted + (val / 2);
+							}
+						}
+						else {
+							step2_flag[i] = 0;
+							final_Y[i] = predicted;
+						}
+					}
+					// step 2
+					floor1_sort(fl.X_list, final_Y, step2_flag, 2 + fl.values);
+					int hx = 0, lx = 0;
+					int ly = final_Y[0] * fl.multiplier, hy = 0;
+					int ma_x = 0;
+					for(int i = 0; i < fl.values; ++i) ma_x = (ma_x < fl.X_list[i]) ? fl.X_list[i] : ma_x;
+					vector<int> output(ma_x, 0);
+					for(int i = 1; i < fl.values; ++i) {
+						if(step2_flag[i] == 1) {
+							hy = final_Y[i] * fl.multiplier;
+							hx = fl.X_list[i];
+							render_line(lx, ly, hx, hy, output);
+							lx = hx, ly = hy;
+						}
+					}
+					if(hx < (int) n) render_line(hx, hy, n, hy, output);
+					if(hx > (int) n) output.resize(n);
+					for(unsigned int i = 0; i < n; ++i) {
+						floor_output[t][i] = floor1_inverse_dB_table[output[i]];
+					}
 				}
 			}
+			if(unused) for(unsigned int i = 0; i < n; ++i) floor_output[t][i] = 0;
+		}
+
+		// nonzero vector propagate
+		for(unsigned int i = 0; i < mapping.coupling_steps; ++i) {
+			if(
 		}
 	}
 };
