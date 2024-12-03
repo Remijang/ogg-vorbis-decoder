@@ -473,7 +473,7 @@ struct packet {
 		if(blockflag == 1 && previous_window_flag == 0) {
 			left_window_start = n / 4 - id.blocksize_0 / 4;
 			left_window_end = n / 4 + id.blocksize_0 / 4;
-			left_n = id.bloksize_0 / 2;
+			left_n = id.blocksize_0 / 2;
 		}
 		else {
 			left_window_start = 0;
@@ -497,29 +497,98 @@ struct packet {
 			window[i] = sin(M_PI / 2 * pow(sin((((float)i) - ((float)right_window_start) + 0.5) / right_n * ( M_PI / 2) + M_PI / 2), 2));
 		for(unsigned int i = right_window_end; i < n; ++i) window[i] = 0;
 
-		for(unsigned int i = 0; i < id.audio_channels; ++i) {
-			unsigned int submap_number = s.mapping_configuration.mux[i];
-			unsigned int floor_number = s.mapping_configuration.submap_floor[submap_number];
+		vector<vector<double>> floor_output;
+		floor_output.resize(id.audio_channels);
+		for(unsigned int t = 0; t < id.audio_channels; ++t)
+			floor_output[t].resize(n);
+
+		for(unsigned int t = 0; t < id.audio_channels; ++t) {
+			unsigned int submap_number = s.mapping_configuration[mapping_number].mux[t];
+			unsigned int floor_number = s.mapping_configuration[mapping_number].submap_floor[submap_number];
+			auto &fl = s.floor_configuration[floor_number];
+			unsigned int unused = 0;
 			if(s.floor_configuration[floor_number].type == 0) {
 
-				unsigned int amplitude = in.read_u(amplitude_bits);
-				vector<float> coefficients;
+				unsigned int amplitude = in.read_u(fl.amplitude_bits);
+				vector<float> coefficients(n, 0);
 				if(amplitude > 0) {
-					unsigned int booknumber = in.read_u(ilog(number_of_books));
+					unsigned int booknumber = in.read_u(ilog(fl.number_of_books));
 					if(booknumber > s.codebook_count) exit(-1);
 					float last = 0;
 					while(1) {
-						vector<float> tmp = s.codebook_configuration[book_list[booknumber]].lookup(in);
+						vector<float> tmp = s.codebook_configuration[fl.book_list[booknumber]].lookup(in);
 						for(unsigned int i = 0; i < tmp.size(); ++i) tmp[i] += last;
 						last = tmp[tmp.size() - 1];
 						coefficients.insert(coefficients.end(), tmp.begin(), tmp.end());
-						if(coefficients.size() >= order) break;
+						if(coefficients.size() >= fl.order) break;
+					}
+					// curve computation
+					auto foobar = [&] (int _i) -> int {
+						int ret = (int) (bark(((double) fl.rate) * _i / 2 / n) * fl.bark_map_size / bark(0.5 * fl.rate));
+						return ret;
+					};
+					vector<float> map(n, 0);
+					for(unsigned int i = 0; i < n - 1; ++i) {
+						map[i] = min((int) (fl.bark_map_size - 1), foobar(i));
+					}
+					map[n - 1] = -1;
+
+					auto getpq = [&] (double omega, double &p, double &q) -> void {
+						double c = cos(omega);
+						p = 1, q = 1;
+						if((fl.order & 1) == 0) {
+							for(unsigned int j = 0; j <= ((fl.order - 3) / 2); ++j)
+								p *= (coefficients[2 * j + 1] - c) * (coefficients[2 * j + 1 - c] - c);
+							for(unsigned int j = 0; j <= ((fl.order - 1) / 2); ++j)
+								q *= (coefficients[2 * j] - c) * (coefficients[2 * j] - c);
+							p *= (1 - c * c) * 4;
+							q /= 4;
+						}
+						else {
+							for(unsigned int j = 0; j <= ((fl.order - 2) / 2); ++j)
+								p *= (coefficients[2 * j + 1] - c) * (coefficients[2 * j + 1 - c] - c);
+							for(unsigned int j = 0; j <= ((fl.order - 2) / 2); ++j)
+								q *= (coefficients[2 * j] - c) * (coefficients[2 * j] - c);
+							p *= (1 - c) * 2;
+							q *= (1 + c) * 2;
+						}
+					};
+
+					auto linear = [&] (double p, double q) -> double {
+						return exp(.11512925 * (((double) amplitude) * fl.amplitude_offset / (pow(2, fl.amplitude_bits) - 1) / sqrt(p + q) - fl.amplitude_offset));
+					};
+
+					for(unsigned int i = 0; i < n; ) {
+						double omega = M_PI * map[i] / fl.bark_map_size;
+						double p, q;
+						getpq(omega, p, q);
+						double linear_floor_value = linear(p, q);
+						unsigned int iteration_condition;
+						do {
+							iteration_condition = map[i];
+							floor_output[t][i] = linear_floor_value;
+							i++;
+						} while(map[i] == iteration_condition);
 					}
 				}
+				else {
+					unused = 1;
+					for(unsigned int i = 0; i < n; ++i)
+						floor_output[t][i] = 0;
+				}
+			}
 
+			else {
+				bool nonzero = in.read_u(1);
+				if(nonzero == 0) {
+					unused = 1;
+				}
+				else {
+					// TODO
+				}
 			}
 		}
 	}
-}
+};
 
 #endif

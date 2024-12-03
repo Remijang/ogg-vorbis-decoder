@@ -43,4 +43,8 @@ unsigned int lookup1_values(unsigned int entries, unsigned int dimensions) {
 	return ret - 1;
 }
 
+double bark(double x) {
+	return 13.1 * atan(0.0074 * x) + 2.24 * atan(0.0000000185 * x * x) + 0.0001 * x;
+}
+
 #endif
