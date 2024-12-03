@@ -21,7 +21,7 @@ void parse(io_buf &in) {
 			cout << "abc" << " " << (int)q[0] << endl;
 			if(q[0] == 1) id.init(in);
 			if(q[0] == 3) cc.init(in);
-			if(q[0] == 5) ss.init(in);
+			if(q[0] == 5) ss.init(in, id);
 			q.clear();
 			for(int i = 0; i < 7; ++i) q.push_back(in.read_u(8));
 			continue;
