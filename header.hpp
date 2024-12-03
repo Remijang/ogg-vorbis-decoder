@@ -70,11 +70,11 @@ struct comment {
 struct codebook {
 	unsigned int dimensions;
 	unsigned int entries;
-	vector<unsigned int> length;
-	vector<unsigned int> codeword;
+	unsigned int* length;
+	unsigned int* codeword;
 	bool ordered;
 	unsigned int lookup_type;
-	vector<unsigned int> multiplicands;
+	unsigned int* multiplicands;
 	float minimum_value;
 	float delta_value;
 	unsigned int value_bits;
@@ -87,12 +87,10 @@ struct codebook {
 		unsigned int current_length = 0;
 		while(!ok) {
 			s <<= 1, s += in.read_u(1), current_length++;
-			printf("%x ", s);
 			for(unsigned int i = 0; i < entries; ++i) { 
 				if(current_length == length[i] && s == codeword[i]) return i;
 			}
 		}
-		printf("\n");
 		return 0;
 	}
 
@@ -132,7 +130,7 @@ struct codebook {
 			while(current_length > length[i]) {
 				s >>= 1, current_length--;
 			}
-			codeword.push_back(s);
+			codeword[i] = s;
 			s++;
 		}
 	}
@@ -143,16 +141,18 @@ struct codebook {
 		dimensions = in.read_u(16);
 		entries    = in.read_u(24);
 		ordered    = in.read_u(1);
+		length = new unsigned int[entries];
+		codeword = new unsigned int[entries];
 		if(ordered == 0) {
 			bool sparse = in.read_u(1);
 			for(unsigned int i = 0; i < entries; ++i) {
 				if(sparse == 1) {
 					bool flag = in.read_u(1);
-					if(flag == 1) length.push_back(in.read_u(5) + 1);
-					else length.push_back(0);
+					if(flag == 1) length[i] = in.read_u(5) + 1;
+					else length[i] = 0;
 				}
 				else {
-					length.push_back(in.read_u(5) + 1);
+					length[i] = in.read_u(5) + 1;
 				}
 			}
 		}
@@ -162,7 +162,7 @@ struct codebook {
 			while(1) {
 				unsigned int number = in.read_u(ilog(entries - current_entry));
 				for(unsigned int i = 0; i < number; ++i)
-					length.push_back(current_length);
+					length[i + current_entry] = current_length;
 				current_entry += number;
 				current_length++;
 				if(current_entry > entries) exit(-1);
@@ -183,8 +183,9 @@ struct codebook {
 		else if(lookup_type == 2) lookup_values = entries * dimensions;
 		else exit(-1);
 
+		multiplicands = new unsigned int[lookup_values];
 		for(unsigned int i = 0; i < lookup_values; ++i)
-			multiplicands.push_back(in.read_u(value_bits));
+			multiplicands[i] = in.read_u(value_bits);
 
 		return;
 	}
@@ -199,19 +200,19 @@ struct floors {
 	unsigned int amplitude_bits;
 	unsigned int amplitude_offset;
 	unsigned int number_of_books;
-	vector<unsigned int> book_list;
+	unsigned int* book_list;
 
 	// type 1 //
 	unsigned int partitions;
 	int maximum_class;
-	vector<unsigned int> partition_class_list;
-	vector<unsigned int> class_dimensions;
-	vector<unsigned int> class_subclasses;
-	vector<unsigned int> class_masterbooks;
-	vector<vector<int>> subclass_books;
+	unsigned int* partition_class_list;
+	unsigned int* class_dimensions;
+	unsigned int* class_subclasses;
+	unsigned int* class_masterbooks;
+	int** subclass_books;
 	unsigned int multiplier;
 	unsigned int rangebits;
-	vector<unsigned int> X_list;
+	unsigned int* X_list;
 
 	void header_decode (io_buf &in, unsigned int _type) {
 		type = _type;
@@ -222,36 +223,40 @@ struct floors {
 			amplitude_bits = in.read_u(6);
 			amplitude_offset = in.read_u(8);
 			number_of_books = in.read_u(4) + 1;
-			book_list.resize(number_of_books);
+			book_list = new unsigned int[number_of_books];
 			for(unsigned int i = 0; i < number_of_books; ++i)
 				book_list[i] = in.read_u(8);
 		}
 		else if(type == 1) {
 			partitions = in.read_u(5);
 			maximum_class = -1;
-			partition_class_list.resize(partitions);
+			partition_class_list = new unsigned int[partitions];
 			for(unsigned int i = 0; i < partitions; ++i) {
 				unsigned int tmp = in.read_u(4);
 				if(maximum_class < (int) tmp) maximum_class = tmp;
 				partition_class_list[i] = tmp;
 			}
-			class_dimensions.resize(maximum_class);
-			class_subclasses.resize(maximum_class);
-			class_masterbooks.resize(maximum_class);
-			subclass_books.resize(maximum_class);
+			maximum_class++;
+			class_dimensions = new unsigned int[maximum_class];
+			class_subclasses = new unsigned int[maximum_class];
+			class_masterbooks = new unsigned int[maximum_class];
+			subclass_books = new int*[maximum_class];
 			for(int i = 0; i < maximum_class; ++i) {
 				class_dimensions[i] = in.read_u(3) + 1;
 				class_subclasses[i] = in.read_u(2);
 				if(class_subclasses[i] != 0) class_masterbooks[i] = in.read_u(8);
 				unsigned int p2 = pow(2, class_subclasses[i]);
-				subclass_books[i].resize(p2);
+				subclass_books[i] = new int[p2];
 				for(unsigned int j = 0; j < p2; ++j) {
 					subclass_books[i][j] = ((int) in.read_u(8)) - 1;
 				}
 			}
 			multiplier = in.read_u(2) + 1;
 			rangebits = in.read_u(4);
-			X_list.resize(partitions + 2);
+			unsigned int total = 0;
+			for(unsigned int i = 0; i < partitions; ++i)
+				total += class_dimensions[partition_class_list[i]];
+			X_list = new unsigned int[total + 2];
 			X_list[0] = 0;
 			X_list[1] = pow(2, rangebits);
 			unsigned int values = 2;
@@ -265,82 +270,256 @@ struct floors {
 		}
 		return;
 	}
+};
 
-	void packet_decode (io_buf &in, vector<codebook> &codebook_configuration) {
-		if(type == 0) {
-			unsigned int amplitude = in.read_u(amplitude_bits);
-			if(amplitude > 0) {
-				vector<float> coefficients;
-				unsigned int booknumber = in.read_u(ilog(number_of_books));
-				if(booknumber > codebook_configuration.size()) exit(-1);
-				float last = 0;
-				while(1) {
-					vector<float> tmp = codebook_configuration[book_list[booknumber]].lookup(in);
-					for(unsigned int i = 0; i < tmp.size(); ++i) tmp[i] += last;
-					last = tmp[tmp.size() - 1];
-					coefficients.insert(coefficients.end(), tmp.begin(), tmp.end());
-					if(coefficients.size() >= order) break;
-				}
-			}
+struct residue {
+	unsigned int type;
+	unsigned int begin;
+	unsigned int end;
+	unsigned int partition_size;
+	unsigned int classification;
+	unsigned int classbook;
+	unsigned int* cascade;
+	unsigned int** books;
+
+	void header_decode(io_buf &in, int _type) {
+		type = _type;
+		begin = in.read_u(24);
+		end = in.read_u(24);
+		partition_size = in.read_u(24) + 1;
+		classification = in.read_u(6) + 1;
+		classbook = in.read_u(8);
+		cascade = new unsigned int[classification];
+		for(unsigned int i = 0; i < classification; ++i) {
+			unsigned int high_bits = 0;
+			unsigned int low_bits = in.read_u(3);
+			bool bitflag = in.read_u(1);
+			if(bitflag == 1) high_bits = in.read_u(5);
+			cascade[i] = high_bits * 8 + low_bits;
 		}
-		else if(type == 1) {
-			unsigned int nonzero;
-			if(nonzero == 1) {
-				// TODO
+		books = new unsigned int*[classification];
+		for(unsigned int i = 0; i < classification; ++i) {
+			books[i] = new unsigned int[8];
+			for(int j = 0; j < 8; ++j) {
+				if((cascade[i] >> j) & 1) books[i][j] = in.read_u(8);
+				else books[i][j] = 0; // unused
 			}
 		}
 		return;
 	}
 };
 
-struct residue {
+struct mappings {
+	bool flag;
+	unsigned int coupling_step;
+	unsigned int submap;
+	int* magnitude;
+	int* angle;
+	unsigned int* mux;
+	unsigned int* submap_floor;
+	unsigned int* submap_residue;
 
+	void header_decode (io_buf &in, identification &id, unsigned int fl, unsigned int re) {
+		flag = in.read_u(1);
+		if(flag == 1) submap = in.read_u(4) + 1;
+		else submap = 1;
+		flag = in.read_u(1);
+		if(flag == 1) {
+			coupling_step = in.read_u(8) + 1;
+			magnitude = new int[coupling_step];
+			angle = new int[coupling_step];
+			for(unsigned int i = 0; i < coupling_step; ++i) {
+				magnitude[i] = in.read_u(ilog(id.audio_channels - 1));
+				angle[i] = in.read_u(ilog(id.audio_channels - 1));
+				if(angle[i] == magnitude[i] 
+						|| magnitude[i] > id.audio_channels - 1 
+						|| angle[i] > id.audio_channels - 1) exit(-1);
+			}
+		}
+		else coupling_step = 0;
+		unsigned int rev = in.read_u(2);
+		if(rev != 0) exit(-1);
+		if(submap > 1) {
+			mux = new unsigned int[id.audio_channels];
+			for(unsigned int i = 0; i < id.audio_channels; ++i) {
+				mux[i] = in.read_u(4);
+				if(mux[i] > submap - 1) exit(-1);
+			}
+		}
+		submap_floor = new unsigned int[submap];
+		submap_residue = new unsigned int [submap];
+		for(unsigned int i = 0; i < submap; ++i) {
+			in.read_u(8); // unused
+			submap_floor[i] = in.read_u(8);
+			if(submap_floor[i] > fl) exit(-1);
+			submap_residue[i] = in.read_u(8);
+			if(submap_residue[i] > re) exit(-1);
+		}
+		return;
+	}
+};
+
+struct mode {
+	bool blockflag;
+	unsigned int windowtype;
+	unsigned int transformtype;
+	unsigned int mapping;
+
+	void header_decode (io_buf &in, unsigned int ma) {
+		blockflag = in.read_u(1);
+		windowtype = in.read_u(16);
+		transformtype = in.read_u(16);
+		mapping = in.read_u(8);
+		if(windowtype != 0
+				|| transformtype != 0 
+				|| mapping > ma) exit(-1);
+		return;
+	}
 };
 
 struct setup {
 	unsigned int codebook_count;
-	vector<codebook> codebook_configuration;
+	codebook* codebook_configuration;
 	unsigned int time_count;
-	vector<unsigned int> time;
+	unsigned int* time;
 	unsigned int floor_count;
-	vector<unsigned int> floor_type;
-	vector<floors> floor_configuration;
+	unsigned int* floor_type;
+	floors* floor_configuration;
 	unsigned int residue_count;
-	vector<unsigned int> residue_type;
-	vector<residue> residue_configuration;
+	unsigned int* residue_type;
+	residue* residue_configuration;
+	unsigned int mapping_count;
+	mappings* mapping_configuration;
+	unsigned int mode_count;
+	mode* mode_configuration;
 
-	void init(io_buf &in) {
+	void init(io_buf &in, identification &id) {
 		codebook_count = in.read_u(8) + 1;
-		codebook_configuration.resize(codebook_count);
+		codebook_configuration = new codebook[codebook_count];
 		for(unsigned int i = 0; i < codebook_count; ++i) {
 			codebook_configuration[i].decode(in);
 		}
 
 		time_count = in.read_u(6) + 1;
-		time.resize(time_count);
+		time = new unsigned int[time_count];
 		for(unsigned int i = 0; i < time_count; ++i) {
 			time[i] = in.read_u(16);
 			if(time[i] != 0) exit(-1);
 		}
 
-		floor_count = in.read_u(6);
-		floor_type.resize(floor_count);
-		floor_configuration.resize(floor_count);
+		floor_count = in.read_u(6) + 1;
+		floor_type = new unsigned int[floor_count];
+		floor_configuration = new floors[floor_count];
 		for(unsigned int i = 0; i < floor_count; ++i) {
 			floor_type[i] = in.read_u(16);
 			if(floor_type[i] > 1) exit(-1);
 			floor_configuration[i].header_decode(in, floor_type[i]);
 		}
 
-		residue_count = in.read_u(6);
-		residue_type.resize(residue_count);
-		residue_configuration.resize(residue_count);
+		residue_count = in.read_u(6) + 1;
+		residue_type = new unsigned int[residue_count];
+		residue_configuration = new residue[residue_count];
 		for(unsigned int i = 0; i < residue_count; ++i) {
 			residue_type[i] = in.read_u(16);
 			if(residue_type[i] > 2) exit(-1);
 			residue_configuration[i].header_decode(in, residue_type[i]);
 		}
+
+		mapping_count = in.read_u(6) + 1;
+		mapping_configuration = new mappings[mapping_count];
+		for(unsigned int i = 0; i < mapping_count; ++i) {
+			unsigned int mapping_type = in.read_u(16);
+			if(mapping_type != 0) exit(-1);
+			mapping_configuration[i].header_decode(in, id, floor_count, residue_count);
+		}
+
+		mode_count = in.read_u(6) + 1;
+		mode_configuration = new mode[mode_count];
+		for(unsigned int i = 0 ; i < mode_count; ++i) {
+			mode_configuration[i].header_decode(in, mapping_count);
+		}
 	}
+
 };
+
+struct packet {
+	//unsigned int type;
+	unsigned int mode_number;
+	unsigned int mapping_number;
+	unsigned int n;
+	unsigned int previous_window_flag;
+	unsigned int next_window_flag;
+	float *window;
+	unsigned int window_center;
+	unsigned int left_window_start;
+	unsigned int left_window_end;
+	unsigned int left_n;
+	unsigned int right_window_start;
+	unsigned int right_window_end;
+	unsigned int right_n;
+
+	void decode(io_buf &in, identification &id, setup &s) {
+		mode_number = in.read_u(ilog(s.mode_count - 1));
+		mapping_number = s.mode_configuration[mode_number].mapping;
+		unsigned int blockflag = s.mode_configuration[mode_number].blockflag;
+		n = blockflag == 0 ? id.blocksize_0 : id.blocksize_1;
+		if(blockflag == 1) {
+			previous_window_flag = in.read_u(1);
+			next_window_flag = in.read_u(1);
+		}
+
+		window = new float[n];
+		window_center = n / 2;
+		if(blockflag == 1 && previous_window_flag == 0) {
+			left_window_start = n / 4 - id.blocksize_0 / 4;
+			left_window_end = n / 4 + id.blocksize_0 / 4;
+			left_n = id.bloksize_0 / 2;
+		}
+		else {
+			left_window_start = 0;
+			left_window_end = window_center;
+			left_n = n / 2;
+		}
+		if(blockflag == 1 && next_window_flag == 0) {
+			right_window_start = n * 3 / 4 - id.blocksize_0 / 4;
+			right_window_end = n * 3 / 4 + id.blocksize_0 / 4;
+			right_n = id.blocksize_0 / 2;
+		}
+		else {
+			right_window_start = window_center;
+			right_window_end = n;
+			right_n = n / 2;
+		}
+		for(unsigned int i = 0; i < left_window_start; ++i) window[i] = 0;
+		for(unsigned int i = left_window_start; i < left_window_end; ++i)
+			window[i] = sin(M_PI / 2 * pow(sin((((float)i) - ((float)left_window_start) + 0.5) / left_n * ( M_PI / 2)), 2));
+		for(unsigned int i = right_window_start; i < right_window_end; ++i)
+			window[i] = sin(M_PI / 2 * pow(sin((((float)i) - ((float)right_window_start) + 0.5) / right_n * ( M_PI / 2) + M_PI / 2), 2));
+		for(unsigned int i = right_window_end; i < n; ++i) window[i] = 0;
+
+		for(unsigned int i = 0; i < id.audio_channels; ++i) {
+			unsigned int submap_number = s.mapping_configuration.mux[i];
+			unsigned int floor_number = s.mapping_configuration.submap_floor[submap_number];
+			if(s.floor_configuration[floor_number].type == 0) {
+
+				unsigned int amplitude = in.read_u(amplitude_bits);
+				vector<float> coefficients;
+				if(amplitude > 0) {
+					unsigned int booknumber = in.read_u(ilog(number_of_books));
+					if(booknumber > s.codebook_count) exit(-1);
+					float last = 0;
+					while(1) {
+						vector<float> tmp = s.codebook_configuration[book_list[booknumber]].lookup(in);
+						for(unsigned int i = 0; i < tmp.size(); ++i) tmp[i] += last;
+						last = tmp[tmp.size() - 1];
+						coefficients.insert(coefficients.end(), tmp.begin(), tmp.end());
+						if(coefficients.size() >= order) break;
+					}
+				}
+
+			}
+		}
+	}
+}
 
 #endif
