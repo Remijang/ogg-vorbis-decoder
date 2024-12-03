@@ -4,6 +4,7 @@
 #include <vector>
 #include <stdlib.h>
 #include <math.h>
+#include <algorithm>
 #include "io.hpp"
 #include "util.hpp"
 
@@ -96,6 +97,30 @@ struct codebooks {
 
 	vector<float> lookup(io_buf &in) {
 		unsigned int lookup_offset = find(in);
+		vector<float> value_vector(dimensions, 0);
+		if(lookup_type == 1) {
+			float last = 0;
+			unsigned int index_divisor = 1;
+			for(unsigned int i = 0; i < dimensions; ++i) {
+				unsigned int multiplicand_offset = (lookup_offset / index_divisor) % lookup_values;
+				value_vector[i] = multiplicands[multiplicand_offset] * delta_value + minimum_value + last;
+				if(sequence_p == 1) last = value_vector[i];
+				index_divisor *= lookup_values;
+			}
+		}
+		if(lookup_type == 2) {
+			float last = 0;
+			unsigned int multiplicand_offset = lookup_offset * dimensions;
+			for(unsigned int i = 0; i < dimensions; ++i) {
+				value_vector[i] = multiplicands[multiplicand_offset] * delta_value + minimum_value + last;
+				if(sequence_p == 1) last = value_vector[i];
+				multiplicand_offset++;
+			}
+		}
+		return value_vector;
+	}
+
+	vector<float> lookup(io_buf &in, unsigned int lookup_offset) {
 		vector<float> value_vector(dimensions, 0);
 		if(lookup_type == 1) {
 			float last = 0;
@@ -281,7 +306,7 @@ struct residues {
 	unsigned int classification;
 	unsigned int classbook;
 	unsigned int* cascade;
-	unsigned int** books;
+	int** books;
 
 	void header_decode(io_buf &in, int _type) {
 		type = _type;
@@ -298,12 +323,12 @@ struct residues {
 			if(bitflag == 1) high_bits = in.read_u(5);
 			cascade[i] = high_bits * 8 + low_bits;
 		}
-		books = new unsigned int*[classification];
+		books = new int*[classification];
 		for(unsigned int i = 0; i < classification; ++i) {
-			books[i] = new unsigned int[8];
+			books[i] = new int[8];
 			for(int j = 0; j < 8; ++j) {
 				if((cascade[i] >> j) & 1) books[i][j] = in.read_u(8);
-				else books[i][j] = 0; // unused
+				else books[i][j] = -1; // unused
 			}
 		}
 		return;
@@ -345,6 +370,12 @@ struct mappings {
 			for(unsigned int i = 0; i < id.audio_channels; ++i) {
 				mux[i] = in.read_u(4);
 				if(mux[i] > submap - 1) exit(-1);
+			}
+		}
+		else {
+			mux = new unsigned int[id.audio_channels];
+			for(unsigned int i = 0; i < id.audio_channels; ++i) {
+				mux[0] = 0;
 			}
 		}
 		submap_floor = new unsigned int[submap];
@@ -463,7 +494,7 @@ struct packet {
 		//packet type, mode and window decode
 		mode_number = in.read_u(ilog(s.mode_count - 1));
 		auto &mode = s.mode_configuration[mode_number];
-		mapping_number = mo.mapping;
+		mapping_number = mode.mapping;
 		auto &mapping = s.mapping_configuration[mapping_number];
 
 		unsigned int blockflag = mode.blockflag;
@@ -508,10 +539,14 @@ struct packet {
 		for(unsigned int t = 0; t < id.audio_channels; ++t)
 			floor_output[t].resize(n);
 
+		bool no_residue[id.audio_channels] = {};
 		for(unsigned int t = 0; t < id.audio_channels; ++t) {
+			/*
 			unsigned int submap_number;
 			if(mapping.submap > 1) submap_number = mapping.mux[t];
 			else submap_number = 0;
+			*/
+			unsigned int submap_number = mapping.mux[t];
 			unsigned int floor_number = mapping.submap_floor[submap_number];
 			auto &fl = s.floor_configuration[floor_number];
 			unsigned int unused = 0;
@@ -530,6 +565,7 @@ struct packet {
 						coefficients.insert(coefficients.end(), tmp.begin(), tmp.end());
 						if(coefficients.size() >= fl.order) break;
 					}
+					/*
 					// curve computation
 					auto foobar = [&] (int _i) -> int {
 						int ret = (int) (bark(((double) fl.rate) * _i / 2 / n) * fl.bark_map_size / bark(0.5 * fl.rate));
@@ -578,6 +614,7 @@ struct packet {
 							i++;
 						} while(map[i] == iteration_condition);
 					}
+					*/
 				}
 				else {
 					unused = 1;
@@ -613,6 +650,7 @@ struct packet {
 						}
 						offset += cdim;
 					}
+					/*
 					// step 1
 					int final_Y[range];
 					bool step2_flag[2 + fl.values];
@@ -651,7 +689,7 @@ struct packet {
 					int hx = 0, lx = 0;
 					int ly = final_Y[0] * fl.multiplier, hy = 0;
 					int ma_x = 0;
-					for(int i = 0; i < fl.values; ++i) ma_x = (ma_x < fl.X_list[i]) ? fl.X_list[i] : ma_x;
+					for(int i = 0; i < fl.values; ++i) ma_x = max(ma_x, fl.X_list[i]);
 					vector<int> output(ma_x, 0);
 					for(int i = 1; i < fl.values; ++i) {
 						if(step2_flag[i] == 1) {
@@ -666,14 +704,67 @@ struct packet {
 					for(unsigned int i = 0; i < n; ++i) {
 						floor_output[t][i] = floor1_inverse_dB_table[output[i]];
 					}
+					*/
 				}
 			}
-			if(unused) for(unsigned int i = 0; i < n; ++i) floor_output[t][i] = 0;
+			if(unused) {
+				for(unsigned int i = 0; i < n; ++i) floor_output[t][i] = 0;
+				no_residue[t] = 1;
+			}
 		}
 
 		// nonzero vector propagate
-		for(unsigned int i = 0; i < mapping.coupling_steps; ++i) {
-			if(
+		vector<int> residue_output(mapping.submap);
+		for(unsigned int i = 0; i < mapping.submap; ++i) {
+			unsigned int ch = 0;
+			bool do_not_decode_flag[id.audio_channels] = {};
+			for(unsigned int j = 0; j < id.audio_channels; ++j) {
+				if(mapping.mux[j] == i) {
+					if(no_residue[j] == 1) do_not_decode_flag[ch] = 1;
+					else do_not_decode_flag[ch] = 0;
+					ch++;
+				}
+			}
+			unsigned int residue_number = mapping.submap_residue[i];
+			auto &residue = s.residue_configuration[residue_number];
+			unsigned int residue_type = s.residue_type[residue_number];
+			// decode packet
+			unsigned int actual_size = n / 2;
+			if(residue_type == 2) actual_size *= ch;
+			unsigned int limit_residue_begin = min(residue.begin, actual_size);
+			unsigned int limit_residue_end = min(residue.end, actual_size);
+			unsigned int classwords_per_codeword = s.codebook_configuration[residue.classbook].dimensions;
+			unsigned int n_to_read = limit_residue_end - limit_residue_begin;
+			unsigned int partitions_to_read = n_to_read / residue.partition_size;
+			vector<vector<float>> r_output(ch);
+
+			if(n_to_read != 0) {
+				for(int pass = 0; pass < 8; ++pass) {
+					unsigned int partition_count = 0;
+					while(partition_count < partitions_to_read) {
+						int classifications[ch][classwords_per_codeword + partition_count];
+						if(pass == 0) {
+							for(unsigned int j = 0; j < ch; ++j) if(do_not_decode_flag[j] == 0) {
+								unsigned int temp = s.codebook_configuration[residue.classbook].find(in);
+								for(int t = classwords_per_codeword - 1; t >= 0; --t) {
+									classifications[j][t + partition_count] = temp % residue.classification;
+									temp /= residue.classification;
+								}
+							}
+						}
+						for(int t = 0; t < classwords_per_codeword && partition_count < partitions_to_read; ++t) {
+							for(unsigned int j = 0; j < ch; ++j) if(do_not_decode_flag[j] == 0) {
+								int vqclass = classifications[j][partition_count];
+								int vqbook = residue.books[vqclass][pass];
+								if(vqbook != -1) {
+									r_output[t] = s.codebook_configuration[vqbook].lookup(in, limit_residue_begin + partition_count * residue.partition_size);
+								}
+							}
+							partition_count++;
+						}
+					}
+				}
+			}
 		}
 	}
 };
