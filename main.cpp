@@ -35,7 +35,8 @@ void parse(io_buf &in) {
 		cout << cc.user_comment_list[i].data() << endl;
 	}
 	packet p;
-	p.decode(in, id, ss);
+	for(int i = 0; i < 100; ++i)
+		p.decode(in, id, ss);
 }
 
 int main() {
