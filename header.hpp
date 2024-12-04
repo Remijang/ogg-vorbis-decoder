@@ -218,7 +218,7 @@ struct floors {
 	int* X_list;
 	int values;
 	int range;
-	int *Y;
+	vector<int> Y;
 
 	void header_decode (io_buf &in, unsigned int _type) {
 		type = _type;
@@ -461,7 +461,7 @@ struct packet {
 	unsigned int n;
 	unsigned int previous_window_flag;
 	unsigned int next_window_flag;
-	double *window;
+	vector<double> window;
 	unsigned int window_center;
 	unsigned int left_window_start;
 	unsigned int left_window_end;
@@ -471,7 +471,7 @@ struct packet {
 	unsigned int right_n;
 
 	vector<vector<double>> floor_output;
-	bool *no_residue;
+	vector<bool> no_residue;
 	vector<vector<double>> r_output;
 	vector<vector<double>> r_output_tmp;
 
@@ -483,7 +483,7 @@ struct packet {
 			next_window_flag = in.read_u(1);
 		}
 
-		window = new double[n];
+		window.resize(n);
 		window_center = n / 2;
 		if(blockflag == 1 && previous_window_flag == 0) {
 			left_window_start = n / 4 - id.blocksize_0 / 4;
@@ -518,9 +518,9 @@ struct packet {
 		// vector<vector<double>> floor_output;
 		floor_output.resize(id.audio_channels);
 		for(unsigned int t = 0; t < id.audio_channels; ++t)
-			floor_output[t].resize(n);
+			floor_output[t].resize(n / 2);
 
-		no_residue = new bool[id.audio_channels];
+		no_residue.resize(id.audio_channels);
 		for(int i = 0; i < id.audio_channels; ++i) no_residue[i] = 0;
 
 		for(unsigned int t = 0; t < id.audio_channels; ++t) {
@@ -533,6 +533,10 @@ struct packet {
 			unsigned int floor_number = mapping.submap_floor[submap_number];
 			auto &fl = s.floor_configuration[floor_number];
 			unsigned int unused = 0;
+
+			printf("%d %d\n", t, fl.type);
+			fflush(stdout);
+
 			if(fl.type == 0) {
 				fl.amplitude = in.read_u(fl.amplitude_bits);
 				if(fl.amplitude > 0) {
@@ -546,12 +550,9 @@ struct packet {
 						fl.coefficients.insert(fl.coefficients.end(), tmp.begin(), tmp.end());
 						if(fl.coefficients.size() >= (long unsigned int) fl.order) break;
 					}
+					floor0_synthesize(fl, t, n / 2);
 				}
-				else {
-					unused = 1;
-					for(unsigned int i = 0; i < n; ++i)
-						floor_output[t][i] = 0;
-				}
+				else unused = 1;
 			}
 			else {
 				bool nonzero = in.read_u(1);
@@ -561,7 +562,7 @@ struct packet {
 				else {
 					int rr[4] = {256, 128, 86, 64};
 					fl.range = rr[fl.multiplier - 1];
-					fl.Y = new int[2 + fl.values];
+					fl.Y.resize(2 + fl.values);
 					fl.Y[0] = in.read_u(ilog(fl.range - 1));
 					fl.Y[1] = in.read_u(ilog(fl.range - 1));
 					unsigned int offset = 2;
@@ -580,11 +581,12 @@ struct packet {
 						}
 						offset += cdim;
 					}
+					floor1_synthesize(fl, t, n / 2);
 				}
 			}
 
 			if(unused == 1) {
-				for(unsigned int i = 0; i < n; ++i) floor_output[t][i] = 0;
+				for(unsigned int i = 0; i < n / 2; ++i) floor_output[t][i] = 0;
 				no_residue[t] = 1;
 			}
 		}
@@ -707,13 +709,13 @@ struct packet {
 		}
 	}
 
-	void floor0_synthesize(floors &fl, int t) {
+	void floor0_synthesize(floors &fl, int t, int n) {
 		auto foobar = [&] (int _i) -> int {
 			int ret = (int) (bark(((double) fl.rate) * _i / 2 / n) * fl.bark_map_size / bark(0.5 * fl.rate));
 			return ret;
 		};
 		vector<double> map(n, 0);
-		for(unsigned int i = 0; i < n - 1; ++i) {
+		for(int i = 0; i < n - 1; ++i) {
 			map[i] = min((int) (fl.bark_map_size - 1), foobar(i));
 		}
 		map[n - 1] = -1;
@@ -743,7 +745,7 @@ struct packet {
 			return exp(.11512925 * (((double) fl.amplitude) * fl.amplitude_offset / (pow(2, fl.amplitude_bits) - 1) / sqrt(p + q) - fl.amplitude_offset));
 		};
 
-		for(unsigned int i = 0; i < n; ) {
+		for(int i = 0; i < n; ) {
 			double omega = M_PI * map[i] / fl.bark_map_size;
 			double p, q;
 			getpq(omega, p, q);
@@ -757,7 +759,7 @@ struct packet {
 		}
 	}
 
-	void floor1_synthesize(floors &fl, int t) {
+	void floor1_synthesize(floors &fl, int t, int n) {
 		// step 1
 		int final_Y[fl.range];
 		bool step2_flag[2 + fl.values];
@@ -808,7 +810,7 @@ struct packet {
 		}
 		if(hx < (int) n) render_line(hx, hy, n, hy, output);
 		if(hx > (int) n) output.resize(n);
-		for(unsigned int i = 0; i < n; ++i) {
+		for(int i = 0; i < n; ++i) {
 			floor_output[t][i] = floor1_inverse_dB_table[output[i]];
 		}
 
@@ -816,6 +818,8 @@ struct packet {
 
 	void decode(io_buf &in, identification &id, setup &s) {
 		//packet type, mode and window decode
+		printf("window\n");
+		fflush(stdout);
 		mode_number = in.read_u(ilog(s.mode_count - 1));
 		auto &mode = s.mode_configuration[mode_number];
 		mapping_number = mode.mapping;
@@ -823,10 +827,14 @@ struct packet {
 
 		decode_window(in, id, s, mode, mapping);
 
+		printf("floor_curve\n");
+		fflush(stdout);
 		decode_floor_curve(in, id, s, mode, mapping);
 
 		// nonzero vector propagate
-		vector<vector<double>> residue_output(mapping.submap);
+		printf("propagate\n");
+		fflush(stdout);
+		vector<vector<double>> residue_output(id.audio_channels);
 		for(int i = 0; i < mapping.submap; ++i) {
 			int ch = 0;
 			bool do_not_decode_flag[id.audio_channels] = {};
@@ -850,17 +858,36 @@ struct packet {
 		}
 
 		// inverse coupling
-		for(int i = mapping.coupling_step - 1; i >= 0; --i) {
-			vector
+		vector<int> magnitude;
+		vector<int> angle;
+		if(mapping.coupling_step) {
+			for(int i = 0; i < mapping.coupling_step; ++i){
+				magnitude.push_back(mapping.magnitude[i]);
+				angle.push_back(mapping.angle[i]);
+			}
 		}
+		for(int i = mapping.coupling_step - 1; i >= 0; --i) {
+			int M = magnitude[i], A = angle[i], new_M, new_A;
+			if     (M > 0 && A > 0)  new_M = M, new_A = M - A;
+			else if(M > 0 && A <= 0) new_A = M, new_M = M + A;
+			else if(M <= 0 && A > 0) new_M = M, new_A = M + A;
+			else					 new_A = M, new_M = M - A;
+			magnitude[i] = new_M, angle[i] = new_A;
+		}
+
+		// dot product
+		for(unsigned int i = 0; i < id.audio_channels; ++i) {
+			for(unsigned int j = 0; j < n / 2; ++j) {
+				floor_output[i][j] *= residue_output[i][j];
+				printf("%lf ", floor_output[i][j]);
+			}
+			printf("\n");
+		}
+		fflush(stdout);
+
+		// inverse MDCT
+
 	}
 };
 
-/*
-// curve computation
-*/
-
-/*
-// step 1
-*/
 #endif
