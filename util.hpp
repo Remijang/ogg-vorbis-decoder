@@ -86,13 +86,11 @@ void render_line(int x0, int y0, int x1, int y1, vector<int> &v) {
 	if(dy < 0) sy = base - 1;
 	else sy = base + 1;
 	ady = ady - abs(base) * adx;
-	if(x >= (int) v.size()) v.resize(x + 1);
 	v[x] = y;
 	for(x = x0 + 1; x < x1; ++x) {
 		err += ady;
 		if(err >= adx) err -= adx, y += sy;
 		else y += base;
-		if(x >= (int) v.size()) v.resize(x + 1);
 		v[x] = y;
 	}
 }
