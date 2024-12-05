@@ -45,12 +45,12 @@ void huffman(int n, int *length, long long *codeword) {
 	auto dfs = [&] (auto&& self, node *cur, long long s) -> void {
 		if(cur->left == NULL && cur->right == NULL) {
 			codeword[cur->val] = s;
-			free(cur);
+			delete cur;
 			return;
 		}
 		self(self, cur->left, s << 1);
 		self(self, cur->right, (s << 1) + 1);
-		free(cur);
+		delete cur;
 	};
 
 	dfs(dfs, p[0].top(), 0);

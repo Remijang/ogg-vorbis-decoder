@@ -9,6 +9,7 @@
 #include "io.hpp"
 #include "util.hpp"
 #include "huffman.hpp"
+#include "mdct.hpp"
 
 using namespace std;
 
@@ -83,6 +84,12 @@ struct codebooks {
 	int value_bits;
 	bool sequence_p;
 	int lookup_values;
+
+	~codebooks() {
+		delete length;
+		delete codeword;
+		delete multiplicands;
+	}
 
 	unsigned int find(io_buf &in) {
 		int ok = 0;
@@ -252,6 +259,20 @@ struct floors {
 	int range;
 	vector<int> Y;
 
+	~floors() {
+		if(type== 0) delete book_list;
+		else {
+			delete partition_class_list;
+			delete class_dimensions;
+			delete class_subclasses;
+			delete class_masterbooks;
+			for(int i = 0; i < maximum_class; ++i)
+				delete subclass_books[i];
+			delete subclass_books;
+			delete X_list;
+		}
+	}
+
 	void header_decode (io_buf &in, unsigned int _type, int co) {
 		type = _type;
 		if(type == 0) {
@@ -321,6 +342,13 @@ struct residues {
 	int* cascade;
 	int** books;
 
+	~residues() {
+		delete cascade;
+		for(int i = 0; i < classification; ++i)
+			delete books[i];
+		delete books;
+	}
+
 	void header_decode(io_buf &in, int _type) {
 		type = _type;
 		begin = in.read_u(24);
@@ -357,6 +385,16 @@ struct mappings {
 	int* mux;
 	int* submap_floor;
 	int* submap_residue;
+
+	~mappings() {
+		if(flag == 1) {
+			delete magnitude;
+			delete angle;
+		}
+		delete mux;
+		delete submap_floor;
+		delete submap_residue;
+	}
 
 	void header_decode (io_buf &in, identification &id, int fl, int re) {
 		flag = in.read_u(1);
@@ -438,6 +476,17 @@ struct setup {
 	int mode_count;
 	modes* mode_configuration;
 
+	~setup() {
+		delete codebook_configuration;
+		delete time;
+		delete floor_type;
+		delete floor_configuration;
+		delete residue_type;
+		delete residue_configuration;
+		delete mapping_configuration;
+		delete mode_configuration;
+	}
+
 	void init(io_buf &in, identification &id) {
 		codebook_count = in.read_u(8) + 1;
 		codebook_configuration = new codebooks[codebook_count];
@@ -491,31 +540,45 @@ struct packet {
 	//unsigned int type;
 	unsigned int mode_number;
 	unsigned int mapping_number;
-	unsigned int n;
-	unsigned int previous_window_flag;
-	unsigned int next_window_flag;
+	int n;
+	bool previous_window_flag;
+	bool next_window_flag;
 	vector<double> window;
-	unsigned int window_center;
-	unsigned int left_window_start;
-	unsigned int left_window_end;
-	unsigned int left_n;
-	unsigned int right_window_start;
-	unsigned int right_window_end;
-	unsigned int right_n;
+	int window_center;
+	int left_window_start;
+	int left_window_end;
+	int left_n;
+	int right_window_start;
+	int right_window_end;
+	int right_n;
 
 	vector<vector<double>> floor_output;
 	vector<bool> no_residue;
 	vector<vector<double>> r_output;
 	vector<vector<double>> r_output_tmp;
 
+	vector<vector<double>> previous_y;
+	vector<vector<double>> Y;
+	vector<vector<double>> Y_ret;
+
+	packet(identification &id) {
+		n = id.blocksize_0;
+		previous_y.resize(id.audio_channels);
+		Y.resize(id.audio_channels);
+		Y_ret.resize(id.audio_channels);
+		for(int i = 0; i < id.audio_channels; ++i)
+			previous_y[i].assign(n, 0);
+	}
+
 	void decode_window(io_buf &in, identification &id, setup &s, modes &mode, mappings& mapping) {
 		unsigned int blockflag = mode.blockflag;
-		n = blockflag == 0 ? id.blocksize_0 : id.blocksize_1;
+		n = blockflag == 0 ? (int) id.blocksize_0 : (int) id.blocksize_1;
 		if(blockflag == 1) {
 			previous_window_flag = in.read_u(1);
 			next_window_flag = in.read_u(1);
 		}
 
+		window.clear();
 		window.resize(n);
 		window_center = n / 2;
 		if(blockflag == 1 && previous_window_flag == 0) {
@@ -538,21 +601,23 @@ struct packet {
 			right_window_end = n;
 			right_n = n / 2;
 		}
-		for(unsigned int i = 0; i < left_window_start; ++i) window[i] = 0;
-		for(unsigned int i = left_window_start; i < left_window_end; ++i)
+		for(int i = 0; i < left_window_start; ++i) window[i] = 0;
+		for(int i = left_window_start; i < left_window_end; ++i)
 			window[i] = sin(M_PI / 2 * pow(sin((((double)i) - ((double)left_window_start) + 0.5) / left_n * ( M_PI / 2)), 2));
-		for(unsigned int i = right_window_start; i < right_window_end; ++i)
+		for(int i = right_window_start; i < right_window_end; ++i)
 			window[i] = sin(M_PI / 2 * pow(sin((((double)i) - ((double)right_window_start) + 0.5) / right_n * ( M_PI / 2) + M_PI / 2), 2));
-		for(unsigned int i = right_window_end; i < n; ++i) window[i] = 0;
+		for(int i = right_window_end; i < n; ++i) window[i] = 0;
 	}
 
 	void decode_floor_curve(io_buf &in, identification &id, setup &s, modes &mode, mappings &mapping) {
 		// floor curve decode
 		// vector<vector<double>> floor_output;
+		floor_output.clear();
 		floor_output.resize(id.audio_channels);
 		for(unsigned int t = 0; t < id.audio_channels; ++t)
 			floor_output[t].resize(n / 2);
 
+		no_residue.clear();
 		no_residue.resize(id.audio_channels);
 		for(int i = 0; i < id.audio_channels; ++i) no_residue[i] = 0;
 
@@ -595,7 +660,8 @@ struct packet {
 				else {
 					int rr[4] = {256, 128, 86, 64};
 					fl.range = rr[fl.multiplier - 1];
-					fl.Y.resize(2 + fl.values);
+					fl.Y.clear();
+					fl.Y.resize(fl.values);
 					fl.Y[0] = in.read_u(ilog(fl.range - 1));
 					fl.Y[1] = in.read_u(ilog(fl.range - 1));
 					unsigned int offset = 2;
@@ -619,7 +685,7 @@ struct packet {
 			}
 
 			if(unused == 1) {
-				for(unsigned int i = 0; i < n / 2; ++i) floor_output[t][i] = 0;
+				for(int i = 0; i < n / 2; ++i) floor_output[t][i] = 0;
 				no_residue[t] = 1;
 			}
 		}
@@ -636,6 +702,7 @@ struct packet {
 		int n_to_read = limit_residue_end - limit_residue_begin;
 		unsigned int partitions_to_read = n_to_read / residue.partition_size + (n_to_read % residue.partition_size != 0);
 
+		r_output.clear();
 		r_output_tmp.resize(ch);
 		for(int i = 0; i < ch; ++i)
 			r_output_tmp[i].resize(partitions_to_read * residue.partition_size, 0);
@@ -795,12 +862,16 @@ struct packet {
 	void floor1_synthesize(floors &fl, int t, int n) {
 		// step 1
 		int final_Y[fl.range] = {};
-		bool step2_flag[2 + fl.values] = {};
+		/*
+		printf("%d %d\n", fl.range, fl.values);
+		fflush(stdout);
+		*/
+		bool step2_flag[fl.values] = {};
 		step2_flag[0] = 1, step2_flag[1] = 1;
 		final_Y[0] = fl.Y[0], final_Y[1] = fl.Y[1];
 		for(int i = 2; i < fl.values; ++i) {
 			int low_neighbor_offset = low_neighbor(fl.X_list, i);
-			int high_neighbor_offset = high_neighbor(fl.X_list, i, fl.values + 2);
+			int high_neighbor_offset = high_neighbor(fl.X_list, i, fl.values);
 			int predicted = render_point(
 					fl.X_list[low_neighbor_offset], final_Y[low_neighbor_offset],
 					fl.X_list[high_neighbor_offset], final_Y[high_neighbor_offset], fl.X_list[i]);
@@ -827,13 +898,14 @@ struct packet {
 			}
 		}
 		// step 2
-		int X_list2[2 + fl.values];
-		for(int i = 0; i < 2 + fl.values; ++i) X_list2[i] = fl.X_list[i];
-		floor1_sort(X_list2, final_Y, step2_flag, 2 + fl.values);
+		int X_list2[fl.values];
+		for(int i = 0; i < fl.values; ++i) X_list2[i] = fl.X_list[i];
+		floor1_sort(X_list2, final_Y, step2_flag, fl.values);
 		/*
 		for(int i = 0; i < fl.values; ++i)
-			printf("(%d,%d,%d) ", X_list2[i], final_Y[i], step2_flag[i]);
+			printf("(%d,%d,%d, %d/%d) ", X_list2[i], final_Y[i], step2_flag[i], i, fl.values);
 		printf("\n");
+		fflush(stdout);
 		*/
 		int hx = 0, lx = 0;
 		int ly = final_Y[0] * fl.multiplier, hy = 0;
@@ -841,7 +913,10 @@ struct packet {
 		for(int i = 0; i < fl.values; ++i) ma_x = max(ma_x, X_list2[i]);
 		vector<int> output(ma_x, 0);
 		for(int i = 1; i < fl.values; ++i) {
-			//printf("%d/%d\n", i, fl.values);
+			/*
+			printf("%d/%d\n", i, fl.values);
+			fflush(stdout);
+			*/
 			if(step2_flag[i] == 1) {
 				hy = final_Y[i] * fl.multiplier;
 				hx = X_list2[i];
@@ -855,13 +930,16 @@ struct packet {
 		for(int i = 0; i < n; ++i) {
 			floor_output[t][i] = floor1_inverse_dB_table[output[i]];
 		}
+		output.clear();
 
 	}
 
 	void decode(io_buf &in, identification &id, setup &s) {
 		//packet type, mode and window decode
+		/*
 		printf("window\n");
 		fflush(stdout);
+		*/
 		mode_number = in.read_u(ilog(s.mode_count - 1));
 		auto &mode = s.mode_configuration[mode_number];
 		mapping_number = mode.mapping;
@@ -869,13 +947,17 @@ struct packet {
 
 		decode_window(in, id, s, mode, mapping);
 
+		/*
 		printf("floor_curve\n");
 		fflush(stdout);
+		*/
 		decode_floor_curve(in, id, s, mode, mapping);
 
 		// nonzero vector propagate
+		/*
 		printf("propagate\n");
 		fflush(stdout);
+		*/
 		vector<vector<double>> residue_output(id.audio_channels);
 		for(int i = 0; i < mapping.submap; ++i) {
 			int ch = 0;
@@ -918,19 +1000,56 @@ struct packet {
 		}
 
 		// dot product
+		/*
 		printf("dot product\n");
 		fflush(stdout);
+		*/
 		for(unsigned int i = 0; i < id.audio_channels; ++i) {
-			for(unsigned int j = 0; j < n / 2; ++j) {
+			for(int j = 0; j < n / 2; ++j) {
 				floor_output[i][j] *= residue_output[i][j];
-				printf("%.12lf ", floor_output[i][j]);
+				//printf("%.12lf ", floor_output[i][j]);
 			}
-			printf("\n");
+			//printf("\n");
 		}
-		fflush(stdout);
 
 		// inverse MDCT
+		/*
+		printf("inverse MDCT\n");
+		fflush(stdout);
+		*/
+		for(int i = 0; i < id.audio_channels; ++i) {
+			Y[i].clear();
+			Y[i].resize(n);
+			easy_IMDCT(floor_output[i], Y[i], window, n);
+		}
 
+		// overlap_add
+		printf("overlap_add\n");
+		fflush(stdout);
+		int m = previous_y[0].size(), m2;
+		m2 = m * 3 / 4;
+		int l2 = left_n / 2;
+		int left_l = m2 - l2 + left_window_start;
+		printf("%d %d %d %d\n", n, m, m2, l2);
+		printf("%d %d %d %d\n", left_l, left_window_start, left_window_end, left_n);
+		printf("%d\n", (m2 - m / 2) + (n / 2 - n / 4));
+		for(int i = 0; i < id.audio_channels; ++i) {
+			Y_ret[i].clear();
+			Y_ret[i].resize((m2 - m / 2) + (n / 2 - n / 4));
+			for(int j = m / 2; j < left_l; ++j)
+				Y_ret[i][j - m / 2] = previous_y[i][j];
+			for(int j = 0; j < left_n; ++j)
+				Y_ret[i][left_l - m / 2 + j] = previous_y[i][j + left_l] + Y[i][j + left_window_start];
+			for(int j = left_window_end; j < n / 2; ++j)
+				Y_ret[i][j] = Y[i][j];
+		}
+
+		printf("assign result\n");
+		fflush(stdout);
+		for(int i = 0; i < id.audio_channels; ++i) {
+			previous_y[i].clear();
+			previous_y[i].assign(Y[i].begin(), Y[i].end());
+		}
 	}
 };
 
