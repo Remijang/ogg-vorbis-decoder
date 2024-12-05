@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <algorithm>
+#include <set>
 #include "io.hpp"
 #include "util.hpp"
 
@@ -71,8 +72,8 @@ struct comment {
 struct codebooks {
 	int dimensions;
 	int entries;
-	unsigned int* length;
-	unsigned int* codeword;
+	int* length;
+	long long* codeword;
 	bool ordered;
 	int lookup_type;
 	int* multiplicands;
@@ -84,12 +85,16 @@ struct codebooks {
 
 	unsigned int find(io_buf &in) {
 		int ok = 0;
-		unsigned int s = 0;
-		unsigned int current_length = 0;
+		long long s = 0;
+		int current_length = 0;
 		while(!ok) {
 			s <<= 1, s += in.read_u(1), current_length++;
 			for(int i = 0; i < entries; ++i) { 
 				if(current_length == length[i] && s == codeword[i]) return i;
+			}
+			if(current_length > 64){
+				printf("not found\n");
+				exit(-1);
 			}
 		}
 		return 0;
@@ -121,19 +126,36 @@ struct codebooks {
 	}
 
 	void setup_huffman() {
-		unsigned int s = 0;
-		unsigned int current_length = 1;
-		s <<= 1;
+		set<pair<long long, int>> s1, s2;
 		for(int i = 0; i < entries; ++i){
-			while(current_length < length[i]) {
-				s <<= 1, current_length++;
-			}
-			while(current_length > length[i]) {
-				s >>= 1, current_length--;
+			long long s = 0;
+			while(1) {
+				int ok = 1;
+				for(int j = 0; j < length[i]; ++j) {
+					if(s1.count({s >> (length[i] - 1 - j), j + 1})) {
+						ok = 0;
+						break;
+					}
+				}
+				if(s2.count({s, length[i]})) ok = 0;
+				if(ok) break;
+				s++;
+				if(s == 0) {
+					printf("error\n");
+					exit(0);
+				}
 			}
 			codeword[i] = s;
-			s++;
+			/*
+			for(int t = length[i] - 1; t >= 0; --t) {
+				printf("%d", (u >> t) & 1);
+			}
+			printf(" %d\n", length[i]);
+			*/
+			s1.insert({s, length[i]});
+			for(int j = 0; j < length[i]; ++j) s2.insert({s >> (length[i] - 1 - j), j + 1});
 		}
+		s1.clear(), s2.clear();
 	}
 
 	void decode(io_buf &in) {
@@ -142,8 +164,8 @@ struct codebooks {
 		dimensions = in.read_u(16);
 		entries    = in.read_u(24);
 		ordered    = in.read_u(1);
-		length = new unsigned int[entries];
-		codeword = new unsigned int[entries];
+		length = new int[entries];
+		codeword = new long long[entries];
 		if(ordered == 0) {
 			bool sparse = in.read_u(1);
 			for(int i = 0; i < entries; ++i) {
@@ -220,7 +242,7 @@ struct floors {
 	int range;
 	vector<int> Y;
 
-	void header_decode (io_buf &in, unsigned int _type) {
+	void header_decode (io_buf &in, unsigned int _type, int co) {
 		type = _type;
 		if(type == 0) {
 			order = in.read_u(8);
@@ -255,6 +277,7 @@ struct floors {
 				subclass_books[i] = new int[p2];
 				for(int j = 0; j < p2; ++j) {
 					subclass_books[i][j] = ((int) in.read_u(8)) - 1;
+					if(subclass_books[i][j] >= co) exit(-1);
 				}
 			}
 			multiplier = in.read_u(2) + 1;
@@ -355,7 +378,7 @@ struct mappings {
 		else {
 			mux = new int[id.audio_channels];
 			for(int i = 0; i < id.audio_channels; ++i) {
-				mux[0] = 0;
+				mux[i] = 0;
 			}
 		}
 		submap_floor = new int[submap];
@@ -425,9 +448,9 @@ struct setup {
 		for(int i = 0; i < floor_count; ++i) {
 			floor_type[i] = in.read_u(16);
 			if(floor_type[i] > 1) exit(-1);
-			floor_configuration[i].header_decode(in, floor_type[i]);
+			floor_configuration[i].header_decode(in, floor_type[i], codebook_count);
 		}
-
+		
 		residue_count = in.read_u(6) + 1;
 		residue_type = new int[residue_count];
 		residue_configuration = new residues[residue_count];
@@ -534,8 +557,8 @@ struct packet {
 			auto &fl = s.floor_configuration[floor_number];
 			unsigned int unused = 0;
 
-			printf("%d %d\n", t, fl.type);
-			fflush(stdout);
+			//printf("%d %d\n", t, fl.type);
+			//fflush(stdout);
 
 			if(fl.type == 0) {
 				fl.amplitude = in.read_u(fl.amplitude_bits);
@@ -761,8 +784,8 @@ struct packet {
 
 	void floor1_synthesize(floors &fl, int t, int n) {
 		// step 1
-		int final_Y[fl.range];
-		bool step2_flag[2 + fl.values];
+		int final_Y[fl.range] = {};
+		bool step2_flag[2 + fl.values] = {};
 		step2_flag[0] = 1, step2_flag[1] = 1;
 		final_Y[0] = fl.Y[0], final_Y[1] = fl.Y[1];
 		for(int i = 2; i < fl.values; ++i) {
@@ -794,16 +817,25 @@ struct packet {
 			}
 		}
 		// step 2
-		floor1_sort(fl.X_list, final_Y, step2_flag, 2 + fl.values);
+		int X_list2[2 + fl.values];
+		for(int i = 0; i < 2 + fl.values; ++i) X_list2[i] = fl.X_list[i];
+		floor1_sort(X_list2, final_Y, step2_flag, 2 + fl.values);
+		/*
+		for(int i = 0; i < fl.values; ++i)
+			printf("(%d,%d,%d) ", X_list2[i], final_Y[i], step2_flag[i]);
+		printf("\n");
+		*/
 		int hx = 0, lx = 0;
 		int ly = final_Y[0] * fl.multiplier, hy = 0;
 		int ma_x = 0;
-		for(int i = 0; i < fl.values; ++i) ma_x = max(ma_x, fl.X_list[i]);
+		for(int i = 0; i < fl.values; ++i) ma_x = max(ma_x, X_list2[i]);
 		vector<int> output(ma_x, 0);
 		for(int i = 1; i < fl.values; ++i) {
+			//printf("%d/%d\n", i, fl.values);
 			if(step2_flag[i] == 1) {
 				hy = final_Y[i] * fl.multiplier;
-				hx = fl.X_list[i];
+				hx = X_list2[i];
+				//if(lx == hx) exit(-1);
 				render_line(lx, ly, hx, hy, output);
 				lx = hx, ly = hy;
 			}
@@ -876,6 +908,8 @@ struct packet {
 		}
 
 		// dot product
+		printf("dot product\n");
+		fflush(stdout);
 		for(unsigned int i = 0; i < id.audio_channels; ++i) {
 			for(unsigned int j = 0; j < n / 2; ++j) {
 				floor_output[i][j] *= residue_output[i][j];
