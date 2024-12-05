@@ -8,6 +8,7 @@
 #include <set>
 #include "io.hpp"
 #include "util.hpp"
+#include "huffman.hpp"
 
 using namespace std;
 
@@ -192,7 +193,16 @@ struct codebooks {
 				else if(current_entry == entries) break;
 			}
 		}
-		setup_huffman();
+		huffman(entries, length, codeword);
+		//setup_huffman();
+		/*
+		for(int i = 0; i < entries; ++i) {
+			long long u = codeword[i];
+			for(int t = length[i] - 1; t >= 0; --t) {
+				printf("%d", (u >> t) & 1);
+			}
+			printf(" %d\n", length[i]);
+		}*/
 
 		lookup_type = in.read_u(4);
 		if(lookup_type == 0) {
@@ -913,7 +923,7 @@ struct packet {
 		for(unsigned int i = 0; i < id.audio_channels; ++i) {
 			for(unsigned int j = 0; j < n / 2; ++j) {
 				floor_output[i][j] *= residue_output[i][j];
-				printf("%lf ", floor_output[i][j]);
+				printf("%.12lf ", floor_output[i][j]);
 			}
 			printf("\n");
 		}
