@@ -58,7 +58,7 @@ int low_neighbor(int *v, int x) {
 
 int high_neighbor(int *v, int x, int n) {
 	int ret = -1;
-	for(int i = x + 1; i < n; ++i) if(v[i] > v[x]) {
+	for(int i = 0; i < x; ++i) if(v[i] > v[x]) {
 		if(ret == -1) ret = i;
 		else if(v[ret] > v[i]) ret = i;
 	}
