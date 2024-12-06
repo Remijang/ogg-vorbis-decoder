@@ -24,7 +24,6 @@ struct io_buf {
 		offset++;
 		if((offset & 7) == 0) {
 			ptr++;
-			if(ptr >= len) exit(-5);
 			return now[ptr] & 1;
 		}
 		else return now[ptr] >> (offset & 7) & 1;

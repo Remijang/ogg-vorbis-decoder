@@ -86,9 +86,9 @@ struct codebooks {
 	int lookup_values;
 
 	~codebooks() {
-		delete length;
-		delete codeword;
-		delete multiplicands;
+		delete[] length;
+		delete[] codeword;
+		delete[] multiplicands;
 	}
 
 	unsigned int find(io_buf &in) {
@@ -260,16 +260,16 @@ struct floors {
 	vector<int> Y;
 
 	~floors() {
-		if(type== 0) delete book_list;
+		if(type== 0) delete[] book_list;
 		else {
-			delete partition_class_list;
-			delete class_dimensions;
-			delete class_subclasses;
-			delete class_masterbooks;
+			delete[] partition_class_list;
+			delete[] class_dimensions;
+			delete[] class_subclasses;
+			delete[] class_masterbooks;
 			for(int i = 0; i < maximum_class; ++i)
-				delete subclass_books[i];
-			delete subclass_books;
-			delete X_list;
+				delete[] subclass_books[i];
+			delete[] subclass_books;
+			delete[] X_list;
 		}
 	}
 
@@ -343,10 +343,10 @@ struct residues {
 	int** books;
 
 	~residues() {
-		delete cascade;
+		delete[] cascade;
 		for(int i = 0; i < classification; ++i)
-			delete books[i];
-		delete books;
+			delete[] books[i];
+		delete[] books;
 	}
 
 	void header_decode(io_buf &in, int _type) {
@@ -388,12 +388,12 @@ struct mappings {
 
 	~mappings() {
 		if(flag == 1) {
-			delete magnitude;
-			delete angle;
+			delete[] magnitude;
+			delete[] angle;
 		}
-		delete mux;
-		delete submap_floor;
-		delete submap_residue;
+		delete[] mux;
+		delete[] submap_floor;
+		delete[] submap_residue;
 	}
 
 	void header_decode (io_buf &in, identification &id, int fl, int re) {
@@ -477,14 +477,14 @@ struct setup {
 	modes* mode_configuration;
 
 	~setup() {
-		delete codebook_configuration;
-		delete time;
-		delete floor_type;
-		delete floor_configuration;
-		delete residue_type;
-		delete residue_configuration;
-		delete mapping_configuration;
-		delete mode_configuration;
+		delete[] codebook_configuration;
+		delete[] time;
+		delete[] floor_type;
+		delete[] floor_configuration;
+		delete[] residue_type;
+		delete[] residue_configuration;
+		delete[] mapping_configuration;
+		delete[] mode_configuration;
 	}
 
 	void init(io_buf &in, identification &id) {
@@ -562,7 +562,7 @@ struct packet {
 	vector<vector<double>> Y_ret;
 
 	packet(identification &id) {
-		n = id.blocksize_0;
+		n = max(id.blocksize_0, id.blocksize_1);
 		previous_y.resize(id.audio_channels);
 		Y.resize(id.audio_channels);
 		Y_ret.resize(id.audio_channels);
@@ -1024,15 +1024,19 @@ struct packet {
 		}
 
 		// overlap_add
+		/*
 		printf("overlap_add\n");
 		fflush(stdout);
+		*/
 		int m = previous_y[0].size(), m2;
 		m2 = m * 3 / 4;
 		int l2 = left_n / 2;
 		int left_l = m2 - l2 + left_window_start;
+		/*
 		printf("%d %d %d %d\n", n, m, m2, l2);
 		printf("%d %d %d %d\n", left_l, left_window_start, left_window_end, left_n);
 		printf("%d\n", (m2 - m / 2) + (n / 2 - n / 4));
+		*/
 		for(int i = 0; i < id.audio_channels; ++i) {
 			Y_ret[i].clear();
 			Y_ret[i].resize((m2 - m / 2) + (n / 2 - n / 4));
@@ -1044,8 +1048,10 @@ struct packet {
 				Y_ret[i][j] = Y[i][j];
 		}
 
+		/*
 		printf("assign result\n");
 		fflush(stdout);
+		*/
 		for(int i = 0; i < id.audio_channels; ++i) {
 			previous_y[i].clear();
 			previous_y[i].assign(Y[i].begin(), Y[i].end());
