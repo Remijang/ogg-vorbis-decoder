@@ -3,30 +3,84 @@
 
 #include <stdlib.h>
 #include <vector>
+#include <queue>
 
 using namespace std;
 
 struct io_buf {
-	unsigned char* now;
+	unsigned char* buf;
 	int ptr;
 	int offset;
 	int len;
+	queue<unsigned int> seg;
+	queue<unsigned char> now;
+	queue<unsigned int> qq;
+	int quota;
+	int end;
+	int count;
+	int end_p;
 
-	io_buf (unsigned char *in, int n): now(in), len(n) {
+	io_buf (unsigned char *in, int n): buf(in), len(n) {
 		ptr = offset = -1;
+		quota = count = end = 0;
+	}
+
+	void parse() {
+		ptr = 0;
+		now.push(0);
+		while(end != 1) {
+			end = end == 1 ? 1 : buf[ptr + 5] >> 2;
+			ptr += 26;
+			int jmp = 0;
+			int count = buf[ptr++];
+			for(int i = 0; i < count; ++i) {
+				int tmp = buf[ptr++];
+				seg.push(tmp);
+				jmp += tmp;
+			}
+			for(int i = 0; i < jmp; ++i) now.push(buf[ptr++]);
+		}
+		while(!seg.empty()) {
+			int sum = 0, tmp;
+			do {
+				tmp = seg.front();
+				seg.pop();
+				sum += tmp;
+			} while(!seg.empty() && tmp == 255);
+			qq.push(sum);
+		}
 	}
 
 	void padding() {
 		offset = -1;
+		while(quota > 0) {
+			now.pop();
+			quota--;
+		}
+	}
+
+	void new_p() {
+		offset = -1;
+		end_p = 0;
+		count = 0;
+		quota = qq.front();
+		qq.pop();
 	}
 
 	int getbit() {
+		if(quota < 0) return 0;
 		offset++;
 		if((offset & 7) == 0) {
-			ptr++;
-			return now[ptr] & 1;
+			quota--;
+			if(quota < 0) {
+				end_p = 1;
+				return 0;
+			}
+			count++;
+			now.pop();
+			return now.front() & 1;
 		}
-		else return now[ptr] >> (offset & 7) & 1;
+		else return now.front() >> (offset & 7) & 1;
 	}
 
 	unsigned int read_u(int n) {

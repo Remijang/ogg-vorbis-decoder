@@ -20,8 +20,8 @@ struct identification {
 	int			  bitrate_maximum;
 	int			  bitrate_nominal;
 	int			  bitrate_minimum;
-	unsigned char blocksize_0;
-	unsigned char blocksize_1;
+	unsigned int  blocksize_0;
+	unsigned int  blocksize_1;
 	bool		  framing_flag;
 
 	void init (io_buf &in) {
@@ -31,10 +31,9 @@ struct identification {
 		bitrate_maximum   = in.read_s(32);
 		bitrate_nominal   = in.read_s(32);
 		bitrate_minimum   = in.read_s(32);
-		blocksize_0       = in.read_u(4);
-		blocksize_1       = in.read_u(4);
+		blocksize_0       = pow(2, (int)in.read_u(4));
+		blocksize_1       = pow(2, (int)in.read_u(4));
 		framing_flag      = in.read_u(1);
-		in.read_u(7);
 	}
 };
 
@@ -66,7 +65,6 @@ struct comment {
 			user_comment_list.push_back(get_utf_string(in, length));
 		}
 		framing_bit = in.read_u(1);
-		in.read_u(7);
 	}
 
 };
@@ -113,7 +111,7 @@ struct codebooks {
 		vector<double> value_vector(dimensions, 0);
 		if(lookup_type == 1) {
 			double last = 0;
-			unsigned int index_divisor = 1;
+			int index_divisor = 1;
 			for(int i = 0; i < dimensions; ++i) {
 				unsigned int multiplicand_offset = (lookup_offset / index_divisor) % lookup_values;
 				value_vector[i] = multiplicands[multiplicand_offset] * delta_value + minimum_value + last;
@@ -123,7 +121,7 @@ struct codebooks {
 		}
 		if(lookup_type == 2) {
 			double last = 0;
-			unsigned int multiplicand_offset = lookup_offset * dimensions;
+			int multiplicand_offset = lookup_offset * dimensions;
 			for(int i = 0; i < dimensions; ++i) {
 				value_vector[i] = multiplicands[multiplicand_offset] * delta_value + minimum_value + last;
 				if(sequence_p == 1) last = value_vector[i];
@@ -131,39 +129,6 @@ struct codebooks {
 			}
 		}
 		return value_vector;
-	}
-
-	void setup_huffman() {
-		set<pair<long long, int>> s1, s2;
-		for(int i = 0; i < entries; ++i){
-			long long s = 0;
-			while(1) {
-				int ok = 1;
-				for(int j = 0; j < length[i]; ++j) {
-					if(s1.count({s >> (length[i] - 1 - j), j + 1})) {
-						ok = 0;
-						break;
-					}
-				}
-				if(s2.count({s, length[i]})) ok = 0;
-				if(ok) break;
-				s++;
-				if(s == 0) {
-					printf("error\n");
-					exit(0);
-				}
-			}
-			codeword[i] = s;
-			/*
-			for(int t = length[i] - 1; t >= 0; --t) {
-				printf("%d", (u >> t) & 1);
-			}
-			printf(" %d\n", length[i]);
-			*/
-			s1.insert({s, length[i]});
-			for(int j = 0; j < length[i]; ++j) s2.insert({s >> (length[i] - 1 - j), j + 1});
-		}
-		s1.clear(), s2.clear();
 	}
 
 	void decode(io_buf &in) {
@@ -201,7 +166,6 @@ struct codebooks {
 			}
 		}
 		huffman(entries, length, codeword);
-		//setup_huffman();
 		/*
 		for(int i = 0; i < entries; ++i) {
 			long long u = codeword[i];
@@ -532,6 +496,8 @@ struct setup {
 		for(int i = 0 ; i < mode_count; ++i) {
 			mode_configuration[i].header_decode(in, mapping_count);
 		}
+		bool framing = in.read_u(1);
+		if(framing == 0) exit(-1);
 	}
 
 };
@@ -572,7 +538,8 @@ struct packet {
 
 	void decode_window(io_buf &in, identification &id, setup &s, modes &mode, mappings& mapping) {
 		unsigned int blockflag = mode.blockflag;
-		n = blockflag == 0 ? (int) id.blocksize_0 : (int) id.blocksize_1;
+		previous_window_flag = next_window_flag = 0;
+		n = (blockflag == 0) ? (int) id.blocksize_0 : (int) id.blocksize_1;
 		if(blockflag == 1) {
 			previous_window_flag = in.read_u(1);
 			next_window_flag = in.read_u(1);
@@ -615,7 +582,7 @@ struct packet {
 		floor_output.clear();
 		floor_output.resize(id.audio_channels);
 		for(unsigned int t = 0; t < id.audio_channels; ++t)
-			floor_output[t].resize(n / 2);
+			floor_output[t].assign(n / 2, 0);
 
 		no_residue.clear();
 		no_residue.resize(id.audio_channels);
@@ -705,15 +672,26 @@ struct packet {
 		r_output.clear();
 		r_output_tmp.resize(ch);
 		for(int i = 0; i < ch; ++i)
-			r_output_tmp[i].resize(partitions_to_read * residue.partition_size, 0);
+			r_output_tmp[i].resize(actual_size, 0);
+
+		/*
+		printf("%d %d %d %d\n", partitions_to_read, residue.partition_size, actual_size, n);
+		printf("%d %d %d %d\n", limit_residue_begin, limit_residue_end, residue.begin, residue.end);
+		printf("%d %d %d\n", classwords_per_codeword, n_to_read, residue_type);
+
+		for(int i = 0; i < ch; ++i)
+			printf(".%d ", do_not_decode_flag[i]);
+		printf("\n");
+		*/
+		if(in.end_p == 1) return;
 
 		if(n_to_read != 0) {
 
 			if(residue_type < 2) {
 
+				int classifications[ch][classwords_per_codeword + partitions_to_read];
 				for(int pass = 0; pass < 8; ++pass) {
 					unsigned int partition_count = 0;
-					int classifications[ch][classwords_per_codeword + partition_count];
 					while(partition_count < partitions_to_read) {
 
 						if(pass == 0) {
@@ -736,16 +714,26 @@ struct packet {
 									if(residue_type == 0) {
 										int step = residue.partition_size / code.dimensions;
 										for(int k = 0; k < step; ++k) {
+											if(in.end_p == 1) {
+												partition_count = partitions_to_read, j = ch, pass = 8;
+												break;
+											}
 											vector<double> entry_temp = code.lookup(in);
 											for(int l = 0; l < code.dimensions; ++l) r_output_tmp[j][offset + k + l * step] += entry_temp[l];
 										}
 									}
 									else if(residue_type == 1) {
 										int k = 0;
-										vector<double> entry_temp = code.lookup(in);
 										do {
-											for(int l = 0; l < code.dimensions; ++l) r_output_tmp[j][offset + k] += entry_temp[l];
-											++k;
+											if(in.end_p == 1) {
+												partition_count = partitions_to_read, j = ch, pass = 8;
+												break;
+											}
+											vector<double> entry_temp = code.lookup(in);
+											for(int l = 0; l < code.dimensions; ++l) {
+												r_output_tmp[j][offset + k] += entry_temp[l];
+												++k;
+											}
 										} while(k < residue.partition_size);
 									}
 								}
@@ -757,12 +745,12 @@ struct packet {
 				}
 			}
 			else { // format 2
-				vector<double> vv(ch * residue.partition_size, 0);
+				vector<double> vv(ch * actual_size, 0);
 				bool noskip = 0;
 				for(int i = 0; i < ch; ++i) if(do_not_decode_flag[i] == 0) noskip = 1;
+				int classifications[ch][classwords_per_codeword + partitions_to_read];
 				for(int pass = 0; noskip && pass < 8; ++pass) {
 					unsigned int partition_count = 0;
-					int classifications[ch][classwords_per_codeword + partition_count];
 					while(partition_count < partitions_to_read) {
 						
 						if(pass == 0) {
@@ -783,10 +771,16 @@ struct packet {
 									int offset = limit_residue_begin + partition_count * residue.partition_size;
 									codebooks &code = s.codebook_configuration[vqbook];
 									int k = 0;
-									vector<double> entry_temp = code.lookup(in);
 									do {
-										for(int l = 0; l < code.dimensions; ++l) vv[j * residue.partition_size + offset + k] += entry_temp[l];
-										++k;
+										if(in.end_p == 1) {
+											partition_count = partitions_to_read, j = ch, pass = 8;
+											break;
+										}
+										vector<double> entry_temp = code.lookup(in);
+										for(int l = 0; l < code.dimensions; ++l) {
+											vv[j * residue.partition_size + offset + k] += entry_temp[l];
+											++k;
+										}
 									} while(k < residue.partition_size);
 								}
 							}
@@ -796,7 +790,7 @@ struct packet {
 					}
 				}
 
-				for(int i = 0; i < residue.partition_size; ++i)
+				for(int i = 0; i < n_to_read; ++i)
 					for(int j = 0; j < ch; ++j)
 						r_output_tmp[j][i] = vv[i * ch + j];
 
@@ -804,9 +798,11 @@ struct packet {
 
 		}
 
+		/*
 		for(int i = 0; i < ch; ++i) {
 			r_output_tmp[i].resize(n_to_read);
 		}
+		*/
 	}
 
 	void floor0_synthesize(floors &fl, int t, int n) {
@@ -976,6 +972,8 @@ struct packet {
 			for(unsigned int j = 0; j < id.audio_channels; ++j) {
 				if(mapping.mux[j] == i) {
 					residue_output[j].assign(r_output_tmp[ch].begin(), r_output_tmp[ch].end());
+					for(int k = 0; k < residue_output[j].size(); ++k)
+						residue_output[j][k] = max(min(residue_output[j][k], 1.0), -1.0);
 					ch++;
 				}
 			}
@@ -1006,11 +1004,13 @@ struct packet {
 		*/
 		for(unsigned int i = 0; i < id.audio_channels; ++i) {
 			for(int j = 0; j < n / 2; ++j) {
+				//printf("(%.2lf,", floor_output[i][j]);
 				floor_output[i][j] *= residue_output[i][j];
-				//printf("%.12lf ", floor_output[i][j]);
+				//printf("%lf) ", residue_output[i][j]);
 			}
 			//printf("\n");
 		}
+		//printf("\n");
 
 		// inverse MDCT
 		/*
@@ -1019,33 +1019,39 @@ struct packet {
 		*/
 		for(int i = 0; i < id.audio_channels; ++i) {
 			Y[i].clear();
-			Y[i].resize(n);
+			Y[i].assign(n, 0);
 			easy_IMDCT(floor_output[i], Y[i], window, n);
 		}
+		/*
+		for(int i  =0; i < n; ++i)
+			printf("%lf ", Y[0][i]);
+		printf("\n");
+		*/
 
 		// overlap_add
 		/*
 		printf("overlap_add\n");
 		fflush(stdout);
 		*/
-		int m = previous_y[0].size(), m2;
+		int m, m2;
+		m = (previous_window_flag == 0) ? id.blocksize_0 : id.blocksize_1;
 		m2 = m * 3 / 4;
 		int l2 = left_n / 2;
-		int left_l = m2 - l2 + left_window_start;
+		int left_l = m2 - l2;
 		/*
+		printf("%d %d\n", previous_window_flag, next_window_flag);
 		printf("%d %d %d %d\n", n, m, m2, l2);
 		printf("%d %d %d %d\n", left_l, left_window_start, left_window_end, left_n);
-		printf("%d\n", (m2 - m / 2) + (n / 2 - n / 4));
+		printf("%d\n", m / 4 + n / 4);
 		*/
 		for(int i = 0; i < id.audio_channels; ++i) {
 			Y_ret[i].clear();
-			Y_ret[i].resize((m2 - m / 2) + (n / 2 - n / 4));
 			for(int j = m / 2; j < left_l; ++j)
-				Y_ret[i][j - m / 2] = previous_y[i][j];
+				Y_ret[i].push_back(previous_y[i][j]);
 			for(int j = 0; j < left_n; ++j)
-				Y_ret[i][left_l - m / 2 + j] = previous_y[i][j + left_l] + Y[i][j + left_window_start];
+				Y_ret[i].push_back(previous_y[i][j + left_l] + Y[i][j + left_window_start]);
 			for(int j = left_window_end; j < n / 2; ++j)
-				Y_ret[i][j] = Y[i][j];
+				Y_ret[i].push_back(Y[i][j]);
 		}
 
 		/*

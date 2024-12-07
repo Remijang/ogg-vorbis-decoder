@@ -23,7 +23,7 @@ int ilog(unsigned int x) {
 
 float float32_unpack(unsigned int x) {
 	int mantissa = x & 0x1fffff;
-	int sign = x & 0x80000000;
+	unsigned int sign = x & 0x80000000;
 	int exponent = (x & 0x7fe00000) >> 21;
 	if(sign != 0) mantissa = ~mantissa;
 	return mantissa * pow(2, exponent - 788);
@@ -109,7 +109,9 @@ void floor1_sort(int *x, int *y, bool *flag, int n) {
 	}
 }
 
-static const float floor1_inverse_dB_table[256] = {
+#undef swap
+
+static const double floor1_inverse_dB_table[256] = {
   1.0649863e-07F, 1.1341951e-07F, 1.2079015e-07F, 1.2863978e-07F,
   1.3699951e-07F, 1.4590251e-07F, 1.5538408e-07F, 1.6548181e-07F,
   1.7623575e-07F, 1.8768855e-07F, 1.9988561e-07F, 2.128753e-07F,
