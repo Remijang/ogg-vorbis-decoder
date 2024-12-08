@@ -9,9 +9,9 @@ The output will be 16-bit PCM stream, which can used by simple example encoder f
 
 ## Remark
 
-In Huffman decode, the lookup time complexity is O(n), just brute force.
+In Huffman decode, the lookup time complexity is $\mathcal O(n)$, just brute force.
 
-In MDCT, I use the easiest formula to implement, which has O(n^2) time complexity.
+In MDCT, I use the easiest formula to implement, which has $\mathcal O(n^2)$ time complexity.
 
 The buttleneck of program should be MDCT module, but I have no enough time to implement fast algorithm.
 
