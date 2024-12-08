@@ -177,19 +177,20 @@ struct packet {
 		unsigned int partitions_to_read = n_to_read / residue.partition_size + (n_to_read % residue.partition_size != 0);
 
 		r_output.clear();
+		r_output_tmp.clear();
 		r_output_tmp.resize(ch);
 		for(int i = 0; i < ch; ++i)
-			r_output_tmp[i].resize(actual_size, 0);
+			r_output_tmp[i].assign(actual_size, 0.0);
 
 		/*
-		   printf("%d %d %d %d\n", partitions_to_read, residue.partition_size, actual_size, n);
-		   printf("%d %d %d %d\n", limit_residue_begin, limit_residue_end, residue.begin, residue.end);
-		   printf("%d %d %d\n", classwords_per_codeword, n_to_read, residue_type);
+		   fprintf(stderr, "%d %d %d %d\n", partitions_to_read, residue.partition_size, actual_size, n);
+		   fprintf(stderr, "%d %d %d %d\n", limit_residue_begin, limit_residue_end, residue.begin, residue.end);
+		   fprintf(stderr, "%d %d %d\n", classwords_per_codeword, n_to_read, residue_type);
 
 		   for(int i = 0; i < ch; ++i)
-		   printf(".%d ", do_not_decode_flag[i]);
-		   printf("\n");
-		 */
+		   fprintf(stderr, ".%d ", do_not_decode_flag[i]);
+		   fprintf(stderr, "\n");
+		   */
 		if(in.end_p == 1) return;
 
 		if(n_to_read != 0) {
@@ -514,12 +515,11 @@ struct packet {
 		for(unsigned int i = 0; i < id.audio_channels; ++i) {
 			for(int j = 0; j < n / 2; ++j) {
 				//printf("(%.2lf,", floor_output[i][j]);
-				floor_output[i][j] *= residue_output[i][j];
-				//printf("%lf) ", residue_output[i][j]);
+				floor_output[i][j] *= round(residue_output[i][j]);
+				//fprintf(stderr, "%f ", floor_output[i][j]);
 			}
-			//printf("\n");
+			//fprintf(stderr, "\n");
 		}
-		//printf("\n");
 
 		// inverse MDCT
 		/*
@@ -532,10 +532,12 @@ struct packet {
 			easy_IMDCT(floor_output[i], Y[i], window, n);
 		}
 		/*
-		   for(int i  =0; i < n; ++i)
-		   printf("%lf ", Y[0][i]);
-		   printf("\n");
-		 */
+		for(int i = 0; i < id.audio_channels; ++i) {
+			for(int j =0; j < n; ++j)
+				fprintf(stderr, "%.5lf ", Y[i][j]);
+			fprintf(stderr, "\n");
+		}
+		*/
 
 		// overlap_add
 		/*

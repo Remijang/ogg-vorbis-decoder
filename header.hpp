@@ -96,7 +96,15 @@ struct codebooks {
 		while(!ok) {
 			s <<= 1, s += in.read_u(1), current_length++;
 			for(int i = 0; i < entries; ++i) { 
-				if(current_length == length[i] && s == codeword[i]) return i;
+				if(current_length == length[i] && s == codeword[i]) {
+					/*
+					for(int i = 0; i < entries; ++i)
+						fprintf(stderr, "%lld ", codeword[i]);
+					fprintf(stderr, "\n");
+					*/
+					//fprintf(stderr, "(entry %d code %lld length %d) ", i, s, length[i]);
+					return i;
+				}
 			}
 			if(current_length > 64){
 				printf("not found\n");
@@ -147,9 +155,7 @@ struct codebooks {
 					if(flag == 1) length[i] = in.read_u(5) + 1;
 					else length[i] = 0;
 				}
-				else {
-					length[i] = in.read_u(5) + 1;
-				}
+				else length[i] = in.read_u(5) + 1;
 			}
 		}
 		else {

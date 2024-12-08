@@ -53,6 +53,7 @@ struct io_buf {
 
 	void padding() {
 		offset = -1;
+		//fprintf(stderr, "quota left %d\n", quota);
 		while(quota > 0) {
 			now.pop();
 			quota--;
@@ -64,16 +65,21 @@ struct io_buf {
 		end_p = 0;
 		count = 0;
 		quota = qq.front();
+		//fprintf(stderr, "quota%d\n", quota);
 		qq.pop();
 	}
 
 	int getbit() {
-		if(quota < 0) return 0;
+		if(quota < 0) {
+			//fprintf(stderr, "no quota %d\n", quota);
+			return 0;
+		}
 		offset++;
 		if((offset & 7) == 0) {
 			quota--;
 			if(quota < 0) {
 				end_p = 1;
+				//fprintf(stderr, "no quota %d\n", quota);
 				return 0;
 			}
 			count++;
