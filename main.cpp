@@ -21,13 +21,22 @@ void parse(io_buf &in, FILE* fout) {
 	while(h_count < 3) {
 		in.new_p();
 		unsigned int type = in.read_u(8); // header type
-		//cout << type << endl;
+		//cerr << type << endl;
 		for(int i = 0; i < 6; ++i) in.read_u(8); // vorbis
-		if(type == 1) id.init(in);
-		if(type == 3) cc.init(in);
-		if(type == 5) ss.init(in, id);
-		h_count++;
+		if(type == 1) {
+			id.init(in);
+			h_count++;
+		}
+		if(type == 3) {
+			cc.init(in);
+			h_count++;
+		}
+		if(type == 5) {
+			ss.init(in, id);
+			h_count++;
+		}
 		in.padding();
+		//fprintf(stderr, "\n");
 	}
 	packet p(id);
 	int count = 0;
@@ -35,19 +44,22 @@ void parse(io_buf &in, FILE* fout) {
 	while(1) {
 		in.new_p();
 		bool type = in.read_u(1); // header type
+		//cerr << "count: " << count << endl;
+		//cerr << "type: " << type << endl;
 		if(type != 0) exit(-4);
 		p.decode(in, id, ss);
-		for(int i = 0; i < id.audio_channels; ++i) {
+		for(int i = 0; i < id.audio_channels && count; ++i) {
 			for(int j = 0; j < p.Y_ret[0].size(); ++j) { 
 				float ff = p.Y_ret[i][j] * 32767.f + .5f;
-				printf("%f ", (float)p.Y_ret[i][j]);
+				//fprintf(stderr, "%f ", (float)p.Y_ret[i][j]);
 				int s = floor(ff);
 				if(s > 32767) s = 32767;
 				if(s < -32768) s = -32768;
 				short s2 = s;
 				fwrite(&s2, sizeof(short), 1, fout);
 			}
-			printf("\n");
+			//fprintf(stderr, "\n");
+			//fprintf(stderr, "\n");
 		}
 		total += p.Y_ret[0].size();
 		//printf("%d: size%d\nread%d\n", count + 3, p.Y_ret[0].size(), in.count);
