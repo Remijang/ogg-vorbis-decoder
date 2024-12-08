@@ -7,6 +7,7 @@
 
 #include "io.hpp"
 #include "header.hpp"
+#include "packet.hpp"
 
 using namespace std;
 
@@ -39,12 +40,14 @@ void parse(io_buf &in, FILE* fout) {
 		for(int i = 0; i < id.audio_channels; ++i) {
 			for(int j = 0; j < p.Y_ret[0].size(); ++j) { 
 				float ff = p.Y_ret[i][j] * 32767.f + .5f;
+				printf("%f ", (float)p.Y_ret[i][j]);
 				int s = floor(ff);
 				if(s > 32767) s = 32767;
 				if(s < -32768) s = -32768;
 				short s2 = s;
 				fwrite(&s2, sizeof(short), 1, fout);
 			}
+			printf("\n");
 		}
 		total += p.Y_ret[0].size();
 		//printf("%d: size%d\nread%d\n", count + 3, p.Y_ret[0].size(), in.count);
@@ -52,12 +55,10 @@ void parse(io_buf &in, FILE* fout) {
 		in.padding();
 		if(in.qq.empty()) break;
 	}
-	/*
 	cout << total << endl;
 	cout << count << endl;
 	cout << in.ptr << " " << in.len << endl;
 	cout << in.now.size() << endl;
-	*/
 }
 
 int main(int argc, char *argv[]) {
