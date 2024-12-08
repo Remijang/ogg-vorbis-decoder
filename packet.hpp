@@ -190,7 +190,7 @@ struct packet {
 		   for(int i = 0; i < ch; ++i)
 		   fprintf(stderr, ".%d ", do_not_decode_flag[i]);
 		   fprintf(stderr, "\n");
-		   */
+		 */
 		if(in.end_p == 1) return;
 
 		if(n_to_read != 0) {
@@ -256,41 +256,37 @@ struct packet {
 				vector<double> vv(ch * actual_size, 0);
 				bool noskip = 0;
 				for(int i = 0; i < ch; ++i) if(do_not_decode_flag[i] == 0) noskip = 1;
-				int classifications[ch][classwords_per_codeword + partitions_to_read];
+				int classifications[classwords_per_codeword + partitions_to_read];
 				for(int pass = 0; noskip && pass < 8; ++pass) {
 					unsigned int partition_count = 0;
 					while(partition_count < partitions_to_read) {
 
 						if(pass == 0) {
-							for(int j = 0; j < ch; ++j) {
-								unsigned int temp = s.codebook_configuration[residue.classbook].find(in);
-								for(int t = classwords_per_codeword - 1; t >= 0; --t) {
-									classifications[j][t + partition_count] = temp % residue.classification;
-									temp /= residue.classification;
-								}
+							unsigned int temp = s.codebook_configuration[residue.classbook].find(in);
+							for(int t = classwords_per_codeword - 1; t >= 0; --t) {
+								classifications[t + partition_count] = temp % residue.classification;
+								temp /= residue.classification;
 							}
 						}
 
 						for(int t = 0; t < classwords_per_codeword && partition_count < partitions_to_read; ++t) {
-							for(int j = 0; j < ch; ++j) {
-								int vqclass = classifications[j][partition_count];
-								int vqbook = residue.books[vqclass][pass];
-								if(vqbook != -1) {
-									int offset = limit_residue_begin + partition_count * residue.partition_size;
-									codebooks &code = s.codebook_configuration[vqbook];
-									int k = 0;
-									do {
-										if(in.end_p == 1) {
-											partition_count = partitions_to_read, j = ch, pass = 8;
-											break;
-										}
-										vector<double> entry_temp = code.lookup(in);
-										for(int l = 0; l < code.dimensions; ++l) {
-											vv[j * residue.partition_size + offset + k] += entry_temp[l];
-											++k;
-										}
-									} while(k < residue.partition_size);
-								}
+							int vqclass = classifications[partition_count];
+							int vqbook = residue.books[vqclass][pass];
+							if(vqbook != -1) {
+								int offset = limit_residue_begin + partition_count * residue.partition_size;
+								codebooks &code = s.codebook_configuration[vqbook];
+								int k = 0;
+								do {
+									if(in.end_p == 1) {
+										partition_count = partitions_to_read, pass = 8;
+										break;
+									}
+									vector<double> entry_temp = code.lookup(in);
+									for(int l = 0; l < code.dimensions; ++l) {
+										vv[offset + k] += entry_temp[l];
+										++k;
+									}
+								} while(k < residue.partition_size);
 							}
 							partition_count++;
 						}
@@ -490,21 +486,17 @@ struct packet {
 		}
 
 		// inverse coupling
-		vector<int> magnitude;
-		vector<int> angle;
-		if(mapping.coupling_step) {
-			for(int i = 0; i < mapping.coupling_step; ++i){
-				magnitude.push_back(mapping.magnitude[i]);
-				angle.push_back(mapping.angle[i]);
-			}
-		}
 		for(int i = mapping.coupling_step - 1; i >= 0; --i) {
-			int M = magnitude[i], A = angle[i], new_M, new_A;
-			if     (M > 0 && A > 0)  new_M = M, new_A = M - A;
-			else if(M > 0 && A <= 0) new_A = M, new_M = M + A;
-			else if(M <= 0 && A > 0) new_M = M, new_A = M + A;
-			else                                     new_A = M, new_M = M - A;
-			magnitude[i] = new_M, angle[i] = new_A;
+			vector<double> &magnitude = residue_output[mapping.magnitude[i]];
+			vector<double> &angle     = residue_output[mapping.angle[i]];
+			for(int j = 0; j < n / 2; ++j) {
+				double M = magnitude[j], A = angle[j], new_M, new_A;
+				if     (M > 0 && A > 0)  new_M = M, new_A = M - A;
+				else if(M > 0 && A <= 0) new_A = M, new_M = M + A;
+				else if(M <= 0 && A > 0) new_M = M, new_A = M + A;
+				else                     new_A = M, new_M = M - A;
+				magnitude[j] = new_M, angle[j] = new_A;
+			}
 		}
 
 		// dot product
@@ -514,9 +506,9 @@ struct packet {
 		 */
 		for(unsigned int i = 0; i < id.audio_channels; ++i) {
 			for(int j = 0; j < n / 2; ++j) {
-				//printf("(%.2lf,", floor_output[i][j]);
+				//printf("%.2lf,", floor_output[i][j]);
 				floor_output[i][j] *= round(residue_output[i][j]);
-				//fprintf(stderr, "%f ", floor_output[i][j]);
+				//fprintf(stderr, "%.5f ", round(residue_output[i][j]));
 			}
 			//fprintf(stderr, "\n");
 		}
