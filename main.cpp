@@ -44,12 +44,14 @@ void parse(io_buf &in, FILE* fout) {
 	while(1) {
 		in.new_p();
 		bool type = in.read_u(1); // header type
-		//cerr << "count: " << count << endl;
-		//cerr << "type: " << type << endl;
+		if(count % 100 == 0) {
+			cerr << "count: " << count << endl;
+			//cerr << "type: " << type << endl;
+		}
 		if(type != 0) exit(-4);
 		p.decode(in, id, ss);
-		for(int i = 0; i < id.audio_channels && count; ++i) {
-			for(int j = 0; j < p.Y_ret[0].size(); ++j) { 
+		for(int j = 0; j < p.Y_ret[0].size() && count; ++j) { 
+			for(int i = 0; i < id.audio_channels; ++i) {
 				float ff = p.Y_ret[i][j] * 32767.f + .5f;
 				//fprintf(stderr, "%f ", (float)p.Y_ret[i][j]);
 				int s = floor(ff);
@@ -67,10 +69,13 @@ void parse(io_buf &in, FILE* fout) {
 		in.padding();
 		if(in.qq.empty()) break;
 	}
+	/*
 	cout << total << endl;
 	cout << count << endl;
 	cout << in.ptr << " " << in.len << endl;
 	cout << in.now.size() << endl;
+	*/
+	cout << "finish" << endl;
 }
 
 int main(int argc, char *argv[]) {
