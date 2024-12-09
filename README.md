@@ -35,27 +35,24 @@ g++ -std=c++17 -O3 -Wall -o main main.cpp
 
 ## For those who want to test the result
 
-1. Clone [Vorbis library](https://github.com/xiph/vorbis/tree/master) to your local directory.
+1. Clone [Vorbis library: encoder example](https://github.com/xiph/vorbis/blob/master/examples/encoder_example.c) to your local directory.
 
-2. Build the library.
-
-3. Find the directory called `examples`
-
-4. Modify Makefile to add the flag `-logg`
-
-5. Change line 127 of `encoder_example.c` to the suitable value. If you don't know the information of the original audio file, install `oggz` then run:
+2. Change line 127 of `encoder_example.c` to the suitable value. If you don't know the information of the original audio file, install `oggz` then run:
 ```bash=
 oggz info [inputfile]
 ```
 
-6. Compile `encoder_example.c`, which can be done by Makefile.
+3. Compile `encoder_example.c`, which can be done by:
+```base=
+gcc encoder_example.c -o encoder_example -O3 -logg -lvorbis -lvorbisenc
+```
 
-7. The usage of sample encoder is:
+4. The usage of sample encoder is:
 ```bash=
 ./encoder_example < [inputfile] > [outputfile]
 ```
 
-8. Then use `ogg123` to play:
+5. Then you can use `ogg123` to play:
 ```bash=
 ogg123 [inputfile]
 ```
