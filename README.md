@@ -43,12 +43,12 @@ g++ -std=c++17 -O3 -Wall -o main main.cpp
 
 4. Modify Makefile to add the flag `-logg`
 
-5. Change line 127 to the suitable value. If you don't know the information of the original audio file, install `oggz` then run:
+5. Change line 127 of `encoder_example.c` to the suitable value. If you don't know the information of the original audio file, install `oggz` then run:
 ```bash=
 oggz info [inputfile]
 ```
 
-6. Compile `encoder_example.c`
+6. Compile `encoder_example.c`, which can be done by Makefile.
 
 7. The usage of sample encoder is:
 ```bash=
