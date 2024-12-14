@@ -15,6 +15,8 @@ In MDCT, I use the easiest formula to implement, which has $\mathcal O(n^2)$ tim
 
 The buttleneck of program should be MDCT module, but I have no enough time to implement fast algorithm.
 
+2024/12/15: add cuda version code to speed up naive MDCT algorithm.
+
 ## Compile
 
 Using Makefile:
