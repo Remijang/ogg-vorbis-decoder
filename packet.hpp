@@ -524,12 +524,12 @@ struct packet {
 			easy_IMDCT(floor_output[i], Y[i], window, n);
 		}
 		/*
-		for(int i = 0; i < id.audio_channels; ++i) {
-			for(int j =0; j < n; ++j)
-				fprintf(stderr, "%.5lf ", Y[i][j]);
-			fprintf(stderr, "\n");
-		}
-		*/
+		   for(int i = 0; i < id.audio_channels; ++i) {
+		   for(int j =0; j < n; ++j)
+		   fprintf(stderr, "%.5lf ", Y[i][j]);
+		   fprintf(stderr, "\n");
+		   }
+		 */
 
 		// overlap_add
 		/*

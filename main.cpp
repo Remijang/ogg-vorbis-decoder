@@ -21,7 +21,7 @@ void parse(io_buf &in, FILE* fout) {
 	while(h_count < 3) {
 		in.new_p();
 		unsigned int type = in.read_u(8); // header type
-		//cerr << type << endl;
+										  //cerr << type << endl;
 		for(int i = 0; i < 6; ++i) in.read_u(8); // vorbis
 		if(type == 1) {
 			id.init(in);
@@ -70,11 +70,11 @@ void parse(io_buf &in, FILE* fout) {
 		if(in.qq.empty()) break;
 	}
 	/*
-	cout << total << endl;
-	cout << count << endl;
-	cout << in.ptr << " " << in.len << endl;
-	cout << in.now.size() << endl;
-	*/
+	   cout << total << endl;
+	   cout << count << endl;
+	   cout << in.ptr << " " << in.len << endl;
+	   cout << in.now.size() << endl;
+	 */
 	cout << "finish" << endl;
 }
 

@@ -98,10 +98,10 @@ struct codebooks {
 			for(int i = 0; i < entries; ++i) { 
 				if(current_length == length[i] && s == codeword[i]) {
 					/*
-					for(int i = 0; i < entries; ++i)
-						fprintf(stderr, "%lld ", codeword[i]);
-					fprintf(stderr, "\n");
-					*/
+					   for(int i = 0; i < entries; ++i)
+					   fprintf(stderr, "%lld ", codeword[i]);
+					   fprintf(stderr, "\n");
+					 */
 					//fprintf(stderr, "(entry %d code %lld length %d) ", i, s, length[i]);
 					return i;
 				}
@@ -173,13 +173,13 @@ struct codebooks {
 		}
 		huffman(entries, length, codeword);
 		/*
-		for(int i = 0; i < entries; ++i) {
-			long long u = codeword[i];
-			for(int t = length[i] - 1; t >= 0; --t) {
-				printf("%d", (u >> t) & 1);
-			}
-			printf(" %d\n", length[i]);
-		}*/
+		   for(int i = 0; i < entries; ++i) {
+		   long long u = codeword[i];
+		   for(int t = length[i] - 1; t >= 0; --t) {
+		   printf("%d", (u >> t) & 1);
+		   }
+		   printf(" %d\n", length[i]);
+		   }*/
 
 		lookup_type = in.read_u(4);
 		if(lookup_type == 0) {
@@ -479,7 +479,7 @@ struct setup {
 			if(floor_type[i] > 1) exit(-1);
 			floor_configuration[i].header_decode(in, floor_type[i], codebook_count);
 		}
-		
+
 		residue_count = in.read_u(6) + 1;
 		residue_type = new int[residue_count];
 		residue_configuration = new residues[residue_count];
