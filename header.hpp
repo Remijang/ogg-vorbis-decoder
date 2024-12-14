@@ -83,17 +83,18 @@ struct codebooks {
 	int lookup_values;
 	node* root;
 
+	void dfs_del (node *cur) {
+		if(cur == NULL) return;
+		dfs_del(cur->left);
+		dfs_del(cur->right);
+		delete cur;
+		return;
+	}
+
 	~codebooks() {
 		delete[] length;
 		delete[] multiplicands;
-		auto dfs = [&] (auto&& self, node *cur) -> void {
-			if(cur == NULL) return;
-			self(self, cur->left);
-			self(self, cur->right);
-			delete cur;
-			return;
-		};
-		dfs(dfs, root);
+		dfs_del(root);
 	}
 
 	unsigned int find(io_buf &in) {
