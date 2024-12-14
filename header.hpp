@@ -73,7 +73,6 @@ struct codebooks {
 	int dimensions;
 	int entries;
 	int* length;
-	long long* codeword;
 	bool ordered;
 	int lookup_type;
 	int* multiplicands;
@@ -82,34 +81,29 @@ struct codebooks {
 	int value_bits;
 	bool sequence_p;
 	int lookup_values;
+	node* root;
 
 	~codebooks() {
 		delete[] length;
-		delete[] codeword;
 		delete[] multiplicands;
+		auto dfs = [&] (auto&& self, node *cur) -> void {
+			if(cur == NULL) return;
+			self(self, cur->left);
+			self(self, cur->right);
+			delete cur;
+			return;
+		};
+		dfs(dfs, root);
 	}
 
 	unsigned int find(io_buf &in) {
-		int ok = 0;
-		long long s = 0;
-		int current_length = 0;
-		while(!ok) {
-			s <<= 1, s += in.read_u(1), current_length++;
-			for(int i = 0; i < entries; ++i) { 
-				if(current_length == length[i] && s == codeword[i]) {
-					/*
-					   for(int i = 0; i < entries; ++i)
-					   fprintf(stderr, "%lld ", codeword[i]);
-					   fprintf(stderr, "\n");
-					 */
-					//fprintf(stderr, "(entry %d code %lld length %d) ", i, s, length[i]);
-					return i;
-				}
-			}
-			if(current_length > 64){
-				printf("not found\n");
-				exit(-1);
-			}
+		int s;
+		node* cur = root;
+		while(1) {
+			s = in.read_u(1);
+			if(s == 0) cur = cur->left;
+			else       cur = cur->right;
+			if(cur->left == NULL && cur->right == NULL) return cur->val;
 		}
 		return 0;
 	}
@@ -146,7 +140,6 @@ struct codebooks {
 		entries    = in.read_u(24);
 		ordered    = in.read_u(1);
 		length = new int[entries];
-		codeword = new long long[entries];
 		if(ordered == 0) {
 			bool sparse = in.read_u(1);
 			for(int i = 0; i < entries; ++i) {
@@ -171,7 +164,7 @@ struct codebooks {
 				else if(current_entry == entries) break;
 			}
 		}
-		huffman(entries, length, codeword);
+		root = huffman(entries, length);
 		/*
 		   for(int i = 0; i < entries; ++i) {
 		   long long u = codeword[i];

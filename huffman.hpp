@@ -21,7 +21,7 @@ struct cmp {
 	}
 };
 
-void huffman(int n, int *length, long long *codeword) {
+node* huffman(int n, int *length) {
 	priority_queue <node *, vector<node *>, cmp> p[33];
 	for(int i = 0; i < n; ++i) if(length[i] > 0) {
 		node* tmp = new node(i);
@@ -42,18 +42,7 @@ void huffman(int n, int *length, long long *codeword) {
 
 	if(p[0].size() != 1) exit(-3);
 
-	auto dfs = [&] (auto&& self, node *cur, long long s) -> void {
-		if(cur->left == NULL && cur->right == NULL) {
-			codeword[cur->val] = s;
-			delete cur;
-			return;
-		}
-		self(self, cur->left, s << 1);
-		self(self, cur->right, (s << 1) + 1);
-		delete cur;
-	};
-
-	dfs(dfs, p[0].top(), 0);
+	return p[0].top();
 }
 
 
