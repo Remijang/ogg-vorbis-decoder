@@ -122,7 +122,7 @@ struct packet {
 						fl.coefficients.insert(fl.coefficients.end(), tmp.begin(), tmp.end());
 						if(fl.coefficients.size() >= (long unsigned int) fl.order) break;
 					}
-					floor0_synthesize(fl, t, n / 2);
+					floor0_synthesis(fl, t, n / 2);
 				}
 				else unused = 1;
 			}
@@ -154,7 +154,7 @@ struct packet {
 						}
 						offset += cdim;
 					}
-					floor1_synthesize(fl, t, n / 2);
+					floor1_synthesis(fl, t, n / 2);
 				}
 			}
 
@@ -309,7 +309,7 @@ struct packet {
 		 */
 	}
 
-	void floor0_synthesize(floors &fl, int t, int n) {
+	void floor0_synthesis(floors &fl, int t, int n) {
 		auto foobar = [&] (int _i) -> int {
 			int ret = (int) (bark(((double) fl.rate) * _i / 2 / n) * fl.bark_map_size / bark(0.5 * fl.rate));
 			return ret;
@@ -359,7 +359,7 @@ struct packet {
 		}
 	}
 
-	void floor1_synthesize(floors &fl, int t, int n) {
+	void floor1_synthesis(floors &fl, int t, int n) {
 		// step 1
 		int final_Y[fl.range] = {};
 		/*
